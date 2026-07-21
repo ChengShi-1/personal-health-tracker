@@ -112,6 +112,32 @@
   .cloud-pill { right: 74px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 36px; }
   .cloud-popover { left: 12px; right: 12px; bottom: calc(126px + env(safe-area-inset-bottom)); width: auto; border-radius: 16px; }
 
+  .chat-fab {
+    right: 14px;
+    bottom: calc(82px + env(safe-area-inset-bottom));
+    z-index: 60;
+  }
+  .health-chat {
+    inset: max(6px, env(safe-area-inset-top)) 6px max(6px, env(safe-area-inset-bottom));
+    z-index: 100;
+    width: auto;
+    max-width: none;
+    height: auto;
+    max-height: none;
+    border-radius: 18px;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+  .health-chat > header {
+    padding-top: 12px;
+  }
+  .chat-messages {
+    min-height: 0;
+    overscroll-behavior: contain;
+  }
+  .chat-compose {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
+  }
+
   .dark .app-shell > main > header { background: color-mix(in srgb, #151c17 92%, transparent); }
   .dark .modal > .row { border-color: #344138; }
 }
