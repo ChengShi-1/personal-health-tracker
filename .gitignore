@@ -1,0 +1,7 @@
+.env
+node_modules
+dist
+*.tsbuildinfo
+supabase/.env*
+!supabase/.env.secrets.example
+supabase/.temp/
