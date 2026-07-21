@@ -282,6 +282,11 @@ export default function App() {
             </button>
           </div>
         </header>
+        <CloudSync
+          data={data}
+          onCloudLoad={setData}
+          inline={page === "chat"}
+        />
         <div className={`mobile-chat-page${page === "chat" ? " active" : ""}`}>
           <HealthChat embedded onApply={applyChat} />
         </div>
@@ -326,7 +331,6 @@ export default function App() {
           <EntryForm kind={add} onSave={save} />
         </Modal>
       )}
-      <CloudSync data={data} onCloudLoad={setData} />
       <div className="desktop-health-chat">
         <HealthChat onApply={applyChat} />
       </div>

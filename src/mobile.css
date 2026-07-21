@@ -1,4 +1,4 @@
-.mobile-chat-page { display: none; }
+.mobile-chat-page, .cloud-inline { display: none; }
 
 @media (max-width: 760px) {
   :root { font-size: 16px; }
@@ -156,11 +156,57 @@
     min-height: 0;
     padding: 0 0 calc(62px + env(safe-area-inset-bottom));
     overflow: hidden;
+    display: grid;
+    grid-template-rows: auto minmax(0, 1fr);
   }
   .chat-page-active > header { display: none; }
   .mobile-chat-page.active {
     display: block;
     height: 100%;
+    min-height: 0;
+  }
+  .chat-page-active > .cloud-inline {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: max(10px, env(safe-area-inset-top)) 12px 10px;
+    background: #edf4ed;
+    border-bottom: 1px solid #d7e3d9;
+  }
+  .cloud-inline-icon {
+    width: 34px;
+    height: 34px;
+    display: grid;
+    place-items: center;
+    border-radius: 11px;
+    color: #68746b;
+    background: #fff;
+  }
+  .cloud-inline.online .cloud-inline-icon { color: #2f6b4f; }
+  .cloud-account-copy { min-width: 0; }
+  .cloud-account-copy strong,
+  .cloud-account-copy small { display: block; }
+  .cloud-account-copy strong { overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .cloud-account-copy small { margin-top: 3px; color: #718077; font-size: 10px; }
+  .cloud-inline-login {
+    grid-column: 1 / -1;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+  }
+  .cloud-inline-login input {
+    min-width: 0;
+    width: 100%;
+    padding: 9px 10px;
+    border: 1px solid #d3ded5;
+    border-radius: 10px;
+  }
+  .cloud-inline-login .cloud-login { width: auto; padding: 9px 12px; }
+  .chat-page-active > .cloud-inline .cloud-logout {
+    grid-column: 1 / -1;
+    min-height: 34px;
+    padding: 7px 10px;
   }
   .mobile-chat-page .health-chat.embedded {
     position: relative;
@@ -182,9 +228,13 @@
     padding: max(14px, env(safe-area-inset-top)) 14px 12px;
   }
   .app-shell:has(.chat-page-active) > .cloud-pill,
-  .app-shell:has(.chat-page-active) > .cloud-popover { display: none; }
+  .app-shell:has(.chat-page-active) > .cloud-popover,
+  .chat-page-active > .cloud-pill,
+  .chat-page-active > .cloud-popover { display: none; }
 
   .dark .app-shell > main > header { background: color-mix(in srgb, #151c17 92%, transparent); }
+  .dark .chat-page-active > .cloud-inline { background: #1b251e; border-color: #344138; }
+  .dark .cloud-inline-icon { background: #263329; }
   .dark .modal > .row { border-color: #344138; }
 }
 

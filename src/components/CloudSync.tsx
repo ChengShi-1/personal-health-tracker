@@ -7,9 +7,11 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase";
 export function CloudSync({
   data,
   onCloudLoad,
+  inline = false,
 }: {
   data: HealthData;
   onCloudLoad: (data: HealthData) => void;
+  inline?: boolean;
 }) {
   const [session, setSession] = useState<Session | null>(null),
     [open, setOpen] = useState(false),
@@ -80,8 +82,52 @@ export function CloudSync({
     loaded.current = false;
     setStatus("未登录");
   };
+  const accountContent = !isSupabaseConfigured ? (
+    <p>请先配置 Supabase URL 和 Publishable Key。</p>
+  ) : session ? (
+    <>
+      <div className="cloud-account-copy">
+        <strong>{session.user.email}</strong>
+        <small>{status} · 数据自动保存至 Supabase</small>
+      </div>
+      <button className="cloud-logout" onClick={logout}>
+        <LogOut size={14} />
+        退出登录
+      </button>
+    </>
+  ) : (
+    <>
+      <div className="cloud-account-copy">
+        <strong>登录 Supabase</strong>
+        <small>{status === "未登录" ? "登录后读取并自动同步健康数据" : status}</small>
+      </div>
+      <div className="cloud-inline-login">
+        <input
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="你的邮箱"
+        />
+        <button
+          className="cloud-login"
+          onClick={login}
+          disabled={sending || !email.trim()}
+        >
+          {sending ? "发送中…" : "发送登录链接"}
+        </button>
+      </div>
+    </>
+  );
   return (
     <>
+      {inline && (
+        <section className={`cloud-inline ${session ? "online" : ""}`}>
+          <span className="cloud-inline-icon">
+            {session ? <Cloud size={17} /> : <CloudOff size={17} />}
+          </span>
+          {accountContent}
+        </section>
+      )}
       <button
         className={`cloud-pill ${session ? "online" : ""}`}
         onClick={() => setOpen(true)}
