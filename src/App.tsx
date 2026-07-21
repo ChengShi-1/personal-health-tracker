@@ -99,6 +99,16 @@ export default function App() {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("health-theme", dark ? "dark" : "light");
   }, [dark]);
+  useEffect(() => {
+    const viewport = window.matchMedia("(max-width: 760px)");
+    const syncPageWithViewport = (event: MediaQueryListEvent) => {
+      setPage((current) =>
+        event.matches ? "chat" : current === "chat" ? "dashboard" : current,
+      );
+    };
+    viewport.addEventListener("change", syncPageWithViewport);
+    return () => viewport.removeEventListener("change", syncPageWithViewport);
+  }, []);
   const all = daily(data),
     filtered = all.filter((x) => x.date >= range.from && x.date <= range.to);
   const save = (kind: string, item: unknown) => {
