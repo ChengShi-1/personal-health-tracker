@@ -1,5 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Check, MessageCircle, Send, X } from "lucide-react";
+import {
+  Bot,
+  Check,
+  MessageCircle,
+  Send,
+  Sparkles,
+  Trash2,
+  X,
+} from "lucide-react";
 import { format } from "date-fns";
 import type {
   BodyMetricEntry,
@@ -30,6 +38,33 @@ const name = (item: Record<string, unknown>) =>
       item.exerciseName ||
       (item.weightKg != null ? `体重 ${item.weightKg} kg` : "身体数据"),
   );
+const suggestions = [
+  "早餐：两个蛋白，一杯200ml牛奶",
+  "跳舞45分钟，中等强度",
+  "今天体重55.8kg",
+];
+const detail = (item: Record<string, unknown>) => {
+  if (item.foodName)
+    return [
+      item.caloriesKcal != null ? `${item.caloriesKcal} kcal` : null,
+      item.proteinG != null ? `${item.proteinG}g 蛋白` : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  if (item.activityType)
+    return item.durationMinutes != null ? `${item.durationMinutes} 分钟` : "";
+  if (item.exerciseName)
+    return [
+      item.sets != null ? `${item.sets} 组` : null,
+      item.totalReps != null ? `${item.totalReps} 次` : null,
+      item.weightKg != null
+        ? `${Math.round(Number(item.weightKg) * 2.20462)} lb`
+        : null,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+  return "";
+};
 async function requestHealthChat(payload: {
   message: string;
   history: ChatMessage[];
@@ -130,6 +165,11 @@ export function HealthChat({
     ]);
     setPending(null);
   };
+  const clear = () => {
+    setMessages([]);
+    setPending(null);
+    setError("");
+  };
   return (
     <>
       <button
@@ -148,19 +188,33 @@ export function HealthChat({
               </span>
               <div>
                 <b>健康记录助手</b>
-                <small>确认后才写入数据</small>
+                <small><i /> 已连接 Supabase · 确认后写入</small>
               </div>
             </div>
-            <button onClick={() => setOpen(false)} aria-label="关闭">
-              <X size={18} />
-            </button>
+            <div className="chat-header-actions">
+              {!!messages.length && (
+                <button onClick={clear} aria-label="清空本次对话" title="清空本次对话">
+                  <Trash2 size={16} />
+                </button>
+              )}
+              <button onClick={() => setOpen(false)} aria-label="关闭">
+                <X size={18} />
+              </button>
+            </div>
           </header>
           <div className="chat-messages">
             {!messages.length && (
               <div className="chat-welcome">
-                <Bot size={24} />
-                <b>直接告诉我你吃了什么或练了什么</b>
-                <p>例如：早餐两个蛋白、一杯200ml牛奶，跳舞45分钟。</p>
+                <span><Sparkles size={19} /></span>
+                <b>今天记录什么？</b>
+                <p>用自然语言输入饮食、运动或身体数据，我会先整理给你确认。</p>
+                <div className="chat-suggestions">
+                  {suggestions.map((suggestion) => (
+                    <button key={suggestion} onClick={() => setText(suggestion)}>
+                      {suggestion}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
             {messages.map((m, i) => (
@@ -169,7 +223,9 @@ export function HealthChat({
               </div>
             ))}
             {loading && (
-              <div className="chat-bubble assistant">正在整理记录…</div>
+              <div className="chat-bubble assistant chat-typing">
+                <i /><i /><i /><span>正在整理记录</span>
+              </div>
             )}
             {error && <div className="chat-error">{error}</div>}
             {pending && count > 0 && (
@@ -185,7 +241,10 @@ export function HealthChat({
                       {pending[key].map((item) => (
                         <p key={item.id}>
                           <span>{item.date}</span>
-                          {name(item as unknown as Record<string, unknown>)}
+                          <b>
+                            {name(item as unknown as Record<string, unknown>)}
+                            <small>{detail(item as unknown as Record<string, unknown>)}</small>
+                          </b>
                           {item.isEstimated && <i>估算</i>}
                         </p>
                       ))}
@@ -204,18 +263,23 @@ export function HealthChat({
             <div ref={end} />
           </div>
           <div className="chat-compose">
-            <textarea
-              value={text}
-              onChange={(e) => setText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  send();
-                }
-              }}
-              placeholder="记录今天的饮食、运动或体重…"
-              rows={2}
-            />
+            <div>
+              <textarea
+                value={text}
+                maxLength={1000}
+                onChange={(e) => setText(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && !e.shiftKey) {
+                    e.preventDefault();
+                    send();
+                  }
+                }}
+                placeholder="例如：午餐鸡肉饭一份，少油…"
+                aria-label="健康记录内容"
+                rows={2}
+              />
+              <small>Enter 发送 · Shift + Enter 换行</small>
+            </div>
             <button
               onClick={send}
               disabled={!text.trim() || loading}
