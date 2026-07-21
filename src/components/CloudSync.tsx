@@ -67,7 +67,10 @@ export function CloudSync({
     setSending(true);
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: {
+        emailRedirectTo: new URL(import.meta.env.BASE_URL, window.location.origin)
+          .href,
+      },
     });
     setStatus(error ? error.message : "登录链接已发送");
     setSending(false);
