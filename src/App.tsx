@@ -39,6 +39,7 @@ import {
   Dumbbell,
   FileDown,
   LayoutDashboard,
+  MessageCircle,
   Moon,
   Plus,
   Scale,
@@ -57,6 +58,7 @@ import type { ProposedChanges } from "./components/HealthChat";
 import { CloudSync } from "./components/CloudSync";
 void useMemo;
 type Page =
+  | "chat"
   | "dashboard"
   | "nutrition"
   | "exercise"
@@ -72,9 +74,18 @@ const nav: [Page, string, typeof Activity][] = [
   ["calendar", "日历", CalendarDays],
   ["audit", "数据审计", Activity],
 ];
+const mobileNav: [Page, string, typeof Activity][] = [
+  ["chat", "对话", MessageCircle],
+  ["dashboard", "概览", LayoutDashboard],
+  ["nutrition", "饮食", Apple],
+  ["exercise", "运动", Dumbbell],
+  ["calendar", "日历", CalendarDays],
+];
 export default function App() {
   const [data, setData] = useState<HealthData>(() => emptyHealthData()),
-    [page, setPage] = useState<Page>("dashboard"),
+    [page, setPage] = useState<Page>(() =>
+      window.matchMedia("(max-width: 760px)").matches ? "chat" : "dashboard",
+    ),
     [dark, setDark] = useState(
       () => localStorage.getItem("health-theme") === "dark",
     ),
@@ -235,11 +246,11 @@ export default function App() {
           </button>
         </div>
       </aside>
-      <main>
+      <main className={page === "chat" ? "chat-page-active" : undefined}>
         <header>
           <div>
             <p className="eyebrow">2026 · PERSONAL HEALTH</p>
-            <h1>{nav.find((x) => x[0] === page)?.[1]}</h1>
+            <h1>{[...mobileNav, ...nav].find((x) => x[0] === page)?.[1]}</h1>
           </div>
           <div className="header-actions">
             <label className="date-range">
@@ -261,6 +272,9 @@ export default function App() {
             </button>
           </div>
         </header>
+        <div className={`mobile-chat-page${page === "chat" ? " active" : ""}`}>
+          <HealthChat embedded onApply={applyChat} />
+        </div>
         {page === "dashboard" && <Dashboard data={data} rows={filtered} />}{" "}
         {page === "nutrition" && (
           <Nutrition data={data} rows={filtered} del={del} />
@@ -303,7 +317,9 @@ export default function App() {
         </Modal>
       )}
       <CloudSync data={data} onCloudLoad={setData} />
-      <HealthChat onApply={applyChat} />
+      <div className="desktop-health-chat">
+        <HealthChat onApply={applyChat} />
+      </div>
       <MobileNav page={page} setPage={setPage} />
     </div>
   );
@@ -1169,7 +1185,7 @@ function MobileNav({
 }) {
   return (
     <div className="mobile-nav">
-      {nav.slice(0, 5).map(([id, label, Icon]) => (
+      {mobileNav.map(([id, label, Icon]) => (
         <button
           className={page === id ? "active" : ""}
           key={id}

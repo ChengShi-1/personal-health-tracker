@@ -118,10 +118,12 @@ async function requestHealthChat(payload: {
 
 export function HealthChat({
   onApply,
+  embedded = false,
 }: {
   onApply: (changes: ProposedChanges) => void;
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false),
+  const [open, setOpen] = useState(embedded),
     [text, setText] = useState(""),
     [loading, setLoading] = useState(false),
     [pending, setPending] = useState<ProposedChanges | null>(null),
@@ -172,15 +174,17 @@ export function HealthChat({
   };
   return (
     <>
-      <button
-        className="chat-fab"
-        onClick={() => setOpen(true)}
-        aria-label="打开健康助手"
-      >
-        <MessageCircle size={22} />
-      </button>
+      {!embedded && (
+        <button
+          className="chat-fab"
+          onClick={() => setOpen(true)}
+          aria-label="打开健康助手"
+        >
+          <MessageCircle size={22} />
+        </button>
+      )}
       {open && (
-        <aside className="health-chat" aria-label="AI 健康记录助手">
+        <aside className={`health-chat${embedded ? " embedded" : ""}`} aria-label="AI 健康记录助手">
           <header>
             <div>
               <span>
@@ -197,9 +201,11 @@ export function HealthChat({
                   <Trash2 size={16} />
                 </button>
               )}
-              <button onClick={() => setOpen(false)} aria-label="关闭">
-                <X size={18} />
-              </button>
+              {!embedded && (
+                <button onClick={() => setOpen(false)} aria-label="关闭">
+                  <X size={18} />
+                </button>
+              )}
             </div>
           </header>
           <div className="chat-messages">
