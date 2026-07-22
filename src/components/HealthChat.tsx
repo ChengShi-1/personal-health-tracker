@@ -18,6 +18,16 @@ import type {
 import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
+type StoredChatJob = { jobId: string; message: string; createdAt: string };
+const pendingJobKey = "health-chat-pending-job";
+const readStoredJob = (): StoredChatJob | null => {
+  try {
+    const value = localStorage.getItem(pendingJobKey);
+    return value ? (JSON.parse(value) as StoredChatJob) : null;
+  } catch {
+    return null;
+  }
+};
 export type ProposedChanges = {
   reply: string;
   nutritionEntries: NutritionEntry[];
@@ -65,14 +75,14 @@ const detail = (item: Record<string, unknown>) => {
       .join(" · ");
   return "";
 };
-async function requestHealthChat(payload: {
+async function submitHealthChat(payload: {
   message: string;
   history: ChatMessage[];
   today: string;
-}) {
+}): Promise<{ jobId?: string; result?: ProposedChanges }> {
   if (isSupabaseConfigured && supabase) {
     const { data, error } = await supabase.functions.invoke("health-chat", {
-      body: payload,
+      body: { action: "submit", ...payload },
     });
     if (error) {
       let detail = "";
@@ -92,7 +102,7 @@ async function requestHealthChat(payload: {
         detail || error.message || "Supabase Edge Function 请求失败",
       );
     }
-    return data as ProposedChanges;
+    return { jobId: (data as { jobId: string }).jobId };
   }
   const response = await fetch("/api/health-chat", {
     method: "POST",
@@ -113,7 +123,19 @@ async function requestHealthChat(payload: {
     );
   }
   if (!response.ok) throw new Error(json.error || "AI 请求失败");
-  return json;
+  return { result: json };
+}
+async function checkHealthChatJob(jobId: string) {
+  if (!supabase) throw new Error("Supabase 未配置");
+  const { data, error } = await supabase.functions.invoke("health-chat", {
+    body: { action: "status", jobId },
+  });
+  if (error) throw error;
+  return data as {
+    status: "queued" | "running" | "completed" | "failed";
+    result: ProposedChanges | null;
+    error: string | null;
+  };
 }
 
 export function HealthChat({
@@ -123,16 +145,74 @@ export function HealthChat({
   onApply: (changes: ProposedChanges) => void;
   embedded?: boolean;
 }) {
+  const restoredJob = readStoredJob();
   const [open, setOpen] = useState(embedded),
     [text, setText] = useState(""),
-    [loading, setLoading] = useState(false),
+    [loading, setLoading] = useState(Boolean(restoredJob)),
+    [jobId, setJobId] = useState<string | null>(restoredJob?.jobId ?? null),
     [pending, setPending] = useState<ProposedChanges | null>(null),
     [error, setError] = useState("");
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>(() =>
+    restoredJob ? [{ role: "user", content: restoredJob.message }] : [],
+  );
   const end = useRef<HTMLDivElement>(null);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending]);
+  useEffect(() => {
+    if (!jobId) return;
+    let active = true;
+    let timer = 0;
+    let checking = false;
+    const check = async () => {
+      if (!active || checking) return;
+      checking = true;
+      try {
+        const job = await checkHealthChatJob(jobId);
+        if (!active) return;
+        if (job.status === "completed" && job.result) {
+          setPending(job.result);
+          setMessages((value) => [
+            ...value,
+            { role: "assistant", content: job.result!.reply },
+          ]);
+          if (readStoredJob()?.jobId === jobId)
+            localStorage.removeItem(pendingJobKey);
+          setJobId(null);
+          setLoading(false);
+          setError("");
+          return;
+        }
+        if (job.status === "failed") {
+          setError(job.error || "后台处理失败");
+          if (readStoredJob()?.jobId === jobId)
+            localStorage.removeItem(pendingJobKey);
+          setJobId(null);
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // 手机恢复联网或回到前台后会继续查询同一任务。
+      } finally {
+        checking = false;
+      }
+      if (active) timer = window.setTimeout(check, document.hidden ? 10000 : 2000);
+    };
+    const resume = () => {
+      if (document.hidden) return;
+      window.clearTimeout(timer);
+      void check();
+    };
+    void check();
+    document.addEventListener("visibilitychange", resume);
+    window.addEventListener("online", resume);
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+      window.removeEventListener("online", resume);
+    };
+  }, [jobId]);
   const send = async () => {
     const message = text.trim();
     if (!message || loading) return;
@@ -142,16 +222,31 @@ export function HealthChat({
     setMessages((v) => [...v, { role: "user", content: message }]);
     setLoading(true);
     try {
-      const json = await requestHealthChat({
+      const submitted = await submitHealthChat({
         message,
         history: messages,
         today: format(new Date(), "yyyy-MM-dd"),
       });
-      setPending(json);
-      setMessages((v) => [...v, { role: "assistant", content: json.reply }]);
+      if (submitted.jobId) {
+        localStorage.setItem(
+          pendingJobKey,
+          JSON.stringify({
+            jobId: submitted.jobId,
+            message,
+            createdAt: new Date().toISOString(),
+          } satisfies StoredChatJob),
+        );
+        setJobId(submitted.jobId);
+      } else if (submitted.result) {
+        setPending(submitted.result);
+        setMessages((v) => [
+          ...v,
+          { role: "assistant", content: submitted.result!.reply },
+        ]);
+        setLoading(false);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "AI 请求失败");
-    } finally {
       setLoading(false);
     }
   };
