@@ -50,6 +50,18 @@ Deno.serve(async req=>{
   const apiKey=Deno.env.get('OPENAI_API_KEY');if(!apiKey)return json({error:'Supabase 尚未配置 OPENAI_API_KEY secret'},503);
   try{
     const body=await req.json();
+    if(body.action==='history'){
+      const cutoff=new Date(Date.now()-10*24*60*60*1000).toISOString();
+      await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?user_id=eq.${user.id}&created_at=lt.${encodeURIComponent(cutoff)}`,{method:'DELETE'});
+      const response=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?user_id=eq.${user.id}&status=eq.completed&created_at=gte.${encodeURIComponent(cutoff)}&select=id,request,result,created_at&order=created_at.asc&limit=100`);
+      if(!response.ok)return json({error:'对话历史读取失败'},500);
+      return json({jobs:await response.json()});
+    }
+    if(body.action==='clear-history'){
+      const response=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?user_id=eq.${user.id}&status=in.(completed,failed)`,{method:'DELETE'});
+      if(!response.ok)return json({error:'清空对话历史失败'},500);
+      return json({ok:true});
+    }
     if(body.action==='status'){
       if(typeof body.jobId!=='string')return json({error:'缺少任务 ID'},400);
       const response=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${encodeURIComponent(body.jobId)}&user_id=eq.${user.id}&select=id,status,result,error,created_at,updated_at`,{headers:{Accept:'application/vnd.pgrst.object+json'}});

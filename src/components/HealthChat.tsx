@@ -137,6 +137,29 @@ async function checkHealthChatJob(jobId: string) {
     error: string | null;
   };
 }
+async function loadHealthChatHistory(): Promise<ChatMessage[]> {
+  if (!supabase) return [];
+  const { data: sessionData } = await supabase.auth.getSession();
+  if (!sessionData.session) return [];
+  const { data, error } = await supabase.functions.invoke("health-chat", {
+    body: { action: "history" },
+  });
+  if (error) throw error;
+  const jobs = (data as {
+    jobs: Array<{
+      request: { message?: string };
+      result: ProposedChanges | null;
+    }>;
+  }).jobs;
+  return jobs.flatMap((job) => {
+    const messages: ChatMessage[] = [];
+    if (job.request?.message)
+      messages.push({ role: "user", content: job.request.message });
+    if (job.result?.reply)
+      messages.push({ role: "assistant", content: job.result.reply });
+    return messages;
+  });
+}
 
 export function HealthChat({
   onApply,
@@ -146,6 +169,7 @@ export function HealthChat({
   embedded?: boolean;
 }) {
   const restoredJob = readStoredJob();
+  const [hadRestoredJob] = useState(Boolean(restoredJob));
   const [open, setOpen] = useState(embedded),
     [text, setText] = useState(""),
     [loading, setLoading] = useState(Boolean(restoredJob)),
@@ -159,6 +183,30 @@ export function HealthChat({
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending]);
+  useEffect(() => {
+    if (!supabase || hadRestoredJob) return;
+    let active = true;
+    const load = async () => {
+      try {
+        const history = await loadHealthChatHistory();
+        if (active && history.length)
+          setMessages((current) => (current.length ? current : history));
+      } catch {
+        // 未登录或临时离线时保持空白；登录后认证事件会再次加载。
+      }
+    };
+    void load();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((event) => {
+      if (event === "SIGNED_IN") void load();
+      if (event === "SIGNED_OUT" && active) setMessages([]);
+    });
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, [hadRestoredJob]);
   useEffect(() => {
     if (!jobId) return;
     let active = true;
@@ -266,6 +314,10 @@ export function HealthChat({
     setMessages([]);
     setPending(null);
     setError("");
+    if (supabase)
+      void supabase.functions.invoke("health-chat", {
+        body: { action: "clear-history" },
+      });
   };
   return (
     <>
