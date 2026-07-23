@@ -37,6 +37,19 @@
 .dark .cycle-timeline article.ovulation,
 .dark .cycle-timeline article.luteal { background: #222c25; }
 .dark .cycle-advice p { color: #b8c4bb; }
+.phase-chart { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.phase-chart-legend {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 5px 11px;
+  padding: 0 9px 5px;
+  color: #6f796f;
+  font-size: 9px;
+}
+.phase-chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+.phase-chart-legend i { width: 9px; height: 9px; border-radius: 3px; opacity: .72; }
+.dark .phase-chart-legend { color: #aeb9b0; }
 
 @media (max-width: 760px) {
   :root { font-size: 16px; }
@@ -156,6 +169,7 @@
   .cycle-timeline > div { grid-template-columns: 1fr 1fr; }
   .cycle-timeline article { min-height: 74px; }
   .cycle-advice { grid-template-columns: 1fr; }
+  .phase-chart-legend { justify-content: flex-start; padding-left: 12px; }
 
   .cloud-pill { right: 74px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 36px; }
   .cloud-popover { left: 12px; right: 12px; bottom: calc(126px + env(safe-area-inset-bottom)); width: auto; border-radius: 16px; }

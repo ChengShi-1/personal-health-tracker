@@ -411,7 +411,15 @@ function Dashboard({
   data: HealthData;
   rows: ReturnType<typeof daily>;
 }) {
-  const last = rows.at(-1),
+  const chartRows = rows.map((row) => {
+      const cycle = cycleStatus(data, row.date);
+      return {
+        ...row,
+        phaseBand: cycle ? 1 : null,
+        cyclePhase: cycle?.phase ?? null,
+      };
+    }),
+    last = rows.at(-1),
     weight = [...data.bodyMetricEntries]
       .filter((x) => x.weightKg != null)
       .sort((a, b) => a.date.localeCompare(b.date))
@@ -467,34 +475,67 @@ function Dashboard({
           subtitle="kcal · 有氧记录值 + 无氧记录/估算值"
           empty={!rows.some((x) => x.calories != null || x.burned != null)}
         >
-          <ResponsiveContainer>
-            <ComposedChart data={rows}>
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" />
-              <YAxis domain={[0, "auto"]} />
-              <Tooltip />
-              <Legend />
-              <Bar
-                dataKey="cardioBurn"
-                stackId="burned"
-                name="有氧消耗"
-                fill="#82b593"
-              />
-              <Bar
-                dataKey="strengthBurn"
-                stackId="burned"
-                name="无氧消耗（含估算）"
-                fill="#ef806d"
-              />
-              <Line
-                dataKey="calories"
-                name="摄入热量"
-                stroke="#2f6b4f"
-                strokeWidth={3}
-                connectNulls={false}
-              />
-            </ComposedChart>
-          </ResponsiveContainer>
+          <div className="phase-chart">
+            <div className="phase-chart-legend">
+              {(Object.keys(phaseLabels) as CyclePhase[]).map((phase) => (
+                <span key={phase}>
+                  <i style={{ background: phaseColors[phase] }} />
+                  {phaseLabels[phase]}
+                </span>
+              ))}
+            </div>
+            <ResponsiveContainer>
+              <ComposedChart data={chartRows} barCategoryGap={0}>
+                <CartesianGrid vertical={false} />
+                <XAxis dataKey="label" />
+                <YAxis yAxisId="calories" domain={[0, "auto"]} />
+                <YAxis yAxisId="phase" hide domain={[0, 1]} />
+                <Tooltip />
+                <Legend />
+                <Bar
+                  yAxisId="phase"
+                  dataKey="phaseBand"
+                  legendType="none"
+                  tooltipType="none"
+                  fillOpacity={0.16}
+                  isAnimationActive={false}
+                >
+                  {chartRows.map((row) => (
+                    <Cell
+                      key={row.date}
+                      fill={
+                        row.cyclePhase
+                          ? phaseColors[row.cyclePhase]
+                          : "transparent"
+                      }
+                    />
+                  ))}
+                </Bar>
+                <Bar
+                  yAxisId="calories"
+                  dataKey="cardioBurn"
+                  stackId="burned"
+                  name="有氧消耗"
+                  fill="#82b593"
+                />
+                <Bar
+                  yAxisId="calories"
+                  dataKey="strengthBurn"
+                  stackId="burned"
+                  name="无氧消耗（含估算）"
+                  fill="#ef806d"
+                />
+                <Line
+                  yAxisId="calories"
+                  dataKey="calories"
+                  name="摄入热量"
+                  stroke="#2f6b4f"
+                  strokeWidth={3}
+                  connectNulls={false}
+                />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
         </ChartCard>
         <ChartCard title="每日运动时间" subtitle="有氧与无氧分钟数">
           <ResponsiveContainer>
@@ -961,6 +1002,12 @@ const phaseLabels: Record<CyclePhase, string> = {
   follicular: "卵泡期",
   ovulation: "排卵期",
   luteal: "黄体期",
+};
+const phaseColors: Record<CyclePhase, string> = {
+  menstrual: "#d96c7a",
+  follicular: "#8fbd73",
+  ovulation: "#e6b84a",
+  luteal: "#9a7ac2",
 };
 function cycleStatus(data: HealthData, date: string) {
   const entries = [...data.menstrualEntries].sort((a, b) =>
