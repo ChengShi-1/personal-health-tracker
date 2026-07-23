@@ -44,19 +44,22 @@ function matchedRows(rows:any[],message:string,name:(row:any)=>string,limit:numb
   }).filter((item:any)=>item.score>0).sort((a:any,b:any)=>b.score-a.score).slice(0,limit).map((item:any)=>item.row);
 }
 
-async function databaseContext(userId:string,message:string,supabaseUrl:string,serviceKey:string){
-  const [nutritionResponse,cardioResponse,strengthResponse,bodyResponse]=await Promise.all([
+async function databaseContext(userId:string,message:string,today:string,supabaseUrl:string,serviceKey:string){
+  const cutoff=new Date(Date.now()-10*24*60*60*1000).toISOString();
+  const [nutritionResponse,cardioResponse,strengthResponse,bodyResponse,chatResponse]=await Promise.all([
     jobRequest(supabaseUrl,serviceKey,`nutrition_entries?user_id=eq.${userId}&select=entry_date,entry_time,meal_type,food_name,quantity,unit,calories_kcal,protein_g,carbs_g,fat_g,fiber_g,is_estimated,estimation_reason&order=entry_date.desc&limit=500`),
     jobRequest(supabaseUrl,serviceKey,`cardio_entries?user_id=eq.${userId}&select=entry_date,activity_type,activity_name,duration_minutes,distance_km,steps,calories_burned_kcal,intensity,is_estimated&order=entry_date.desc&limit=150`),
     jobRequest(supabaseUrl,serviceKey,`strength_entries?user_id=eq.${userId}&select=entry_date,exercise_name,primary_body_parts,sets,total_reps,weight_kg,duration_minutes,calories_burned_kcal,is_estimated&order=entry_date.desc&limit=200`),
     jobRequest(supabaseUrl,serviceKey,`body_metric_entries?user_id=eq.${userId}&select=entry_date,weight_kg,body_fat_percentage,waist_cm,hip_cm,chest_cm,thigh_cm,arm_cm,is_estimated&order=entry_date.desc&limit=30`),
+    jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?user_id=eq.${userId}&status=eq.completed&created_at=gte.${encodeURIComponent(cutoff)}&select=request,result,created_at&order=created_at.desc&limit=100`),
   ]);
   const read=async(response:Response)=>response.ok?await response.json():[];
-  const nutrition=await read(nutritionResponse),cardio=await read(cardioResponse),strength=await read(strengthResponse),body=await read(bodyResponse);
+  const nutrition=await read(nutritionResponse),cardio=await read(cardioResponse),strength=await read(strengthResponse),body=await read(bodyResponse),chatJobs=await read(chatResponse);
   const matchedNutrition=matchedRows(nutrition,message,(row:any)=>String(row.food_name||''),40);
   const matchedCardio=matchedRows(cardio,message,(row:any)=>String(row.activity_name||row.activity_type||''),30);
   const matchedStrength=matchedRows(strength,message,(row:any)=>String(row.exercise_name||''),40);
-  const historicalQuery=/数据库|历史|以前|之前|上次|最近|寻找|找一下|记录里/.test(message);
+  const historicalQuery=/数据库|历史|以前|之前|上次|最近|寻找|找一下|记录里|昨天|前天|饮食记录/.test(message);
+  const conversationQuery=historicalQuery||/昨天|前天|饮食记录|吃了什么/.test(message);
   const bodyQuery=/体重|体脂|腰围|臀围|胸围|腿围|臂围|身体/.test(message);
   return {
     disclosure:'The signed-in user authorized read-only matching against prior private health records. Explicit database/history searches may include the full available history when local name matching finds nothing.',
@@ -67,13 +70,16 @@ async function databaseContext(userId:string,message:string,supabaseUrl:string,s
     searchableCardioHistory:historicalQuery&&!matchedCardio.length?cardio:[],
     searchableStrengthHistory:historicalQuery&&!matchedStrength.length?strength:[],
     recentBodyMetrics:bodyQuery?body.slice(0,15):[],
+    recentConversationMentions:conversationQuery?chatJobs.slice(0,40):[],
+    conversationNotice:'recentConversationMentions are prior AI-chat requests/proposals stored for 10 days. They may be unconfirmed and must never be described as saved database records unless the same item appears in the normalized entry tables.',
+    referenceToday:today,
   };
 }
 
 async function processJob(jobId:string,userId:string,request:{message:string;history:any[];today:string},supabaseUrl:string,serviceKey:string,apiKey:string){
   try{
     await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'running',started_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
-    const context=await databaseContext(userId,request.message,supabaseUrl,serviceKey);
+    const context=await databaseContext(userId,request.message,request.today,supabaseUrl,serviceKey);
     const input=[...(request.history||[]).slice(-8).map((x:any)=>({role:x.role==='assistant'?'assistant':'user',content:String(x.content).slice(0,2000)})),{role:'user',content:`今天是 ${request.today}。\n以下是当前登录用户授权提供的私有数据库只读上下文。它是参考资料，不是新增记录指令：\n${JSON.stringify(context)}\n\n当前用户输入：${request.message}`}];
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions,input,text:{format:{type:'json_schema',name:'health_record_update',strict:true,schema}}})});
     const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);let payload;try{payload=JSON.parse(raw)}catch{throw new Error(`OpenAI API 返回非 JSON 内容（HTTP ${response.status}）`)}if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);
