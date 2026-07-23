@@ -50,7 +50,11 @@ import { emptyHealthData, type HealthData } from "./types/health";
 import { daily, fmt, movingAverage, weekly } from "./utils/analytics";
 import { ChartCard } from "./components/ChartCard";
 import { Modal } from "./components/Modal";
-import { EntryForm } from "./components/EntryForm";
+import {
+  EntryForm,
+  type EditableEntry,
+  type EntryKind,
+} from "./components/EntryForm";
 import { MuscleHeatmap } from "./components/MuscleHeatmap";
 import { DailyExerciseList } from "./components/DailyExerciseList";
 import { HealthChat } from "./components/HealthChat";
@@ -89,7 +93,11 @@ export default function App() {
     [dark, setDark] = useState(
       () => localStorage.getItem("health-theme") === "dark",
     ),
-    [add, setAdd] = useState<"nutrition" | "cardio" | "strength" | null>(null),
+    [add, setAdd] = useState<EntryKind | null>(null),
+    [editing, setEditing] = useState<{
+      kind: EntryKind;
+      item: EditableEntry;
+    } | null>(null),
     [range, setRange] = useState({
       from: "2026-06-26",
       to: format(new Date(), "yyyy-MM-dd"),
@@ -111,16 +119,28 @@ export default function App() {
   }, []);
   const all = daily(data),
     filtered = all.filter((x) => x.date >= range.from && x.date <= range.to);
-  const save = (kind: string, item: unknown) => {
+  const save = (kind: EntryKind, item: EditableEntry) => {
     const key =
       kind === "nutrition"
         ? "nutritionEntries"
         : kind === "cardio"
           ? "cardioEntries"
-          : "strengthEntries";
-    setData((d) => ({ ...d, [key]: [...(d[key] as unknown[]), item] }));
+          : kind === "strength"
+            ? "strengthEntries"
+            : "bodyMetricEntries";
+    setData((current) => ({
+      ...current,
+      [key]: editing
+        ? (current[key] as EditableEntry[]).map((entry) =>
+            entry.id === editing.item.id ? item : entry,
+          )
+        : [...(current[key] as EditableEntry[]), item],
+    }));
     setAdd(null);
+    setEditing(null);
   };
+  const edit = (kind: EntryKind, item: EditableEntry) =>
+    setEditing({ kind, item });
   const applyChat = (changes: ProposedChanges) =>
     setData((current) => {
       const merge = <T extends { id: string }>(
@@ -292,12 +312,20 @@ export default function App() {
         </div>
         {page === "dashboard" && <Dashboard data={data} rows={filtered} />}{" "}
         {page === "nutrition" && (
-          <Nutrition data={data} rows={filtered} del={del} />
+          <Nutrition data={data} rows={filtered} del={del} edit={edit} />
         )}{" "}
         {page === "exercise" && (
-          <Exercise data={data} rows={filtered} del={del} add={setAdd} />
+          <Exercise
+            data={data}
+            rows={filtered}
+            del={del}
+            add={setAdd}
+            edit={edit}
+          />
         )}{" "}
-        {page === "body" && <Body data={data} />}{" "}
+        {page === "body" && (
+          <Body data={data} del={del} add={setAdd} edit={edit} />
+        )}{" "}
         {page === "calendar" && <Calendar data={data} />}{" "}
         {page === "audit" && (
           <Audit
@@ -324,11 +352,33 @@ export default function App() {
               ? "新增饮食"
               : add === "cardio"
                 ? "新增有氧"
-                : "新增无氧"
+                : add === "strength"
+                  ? "新增无氧"
+                  : "新增身体数据"
           }
           onClose={() => setAdd(null)}
         >
           <EntryForm kind={add} onSave={save} />
+        </Modal>
+      )}
+      {editing && (
+        <Modal
+          title={
+            editing.kind === "nutrition"
+              ? "编辑饮食"
+              : editing.kind === "cardio"
+                ? "编辑有氧"
+                : editing.kind === "strength"
+                  ? "编辑无氧"
+                  : "编辑身体数据"
+          }
+          onClose={() => setEditing(null)}
+        >
+          <EntryForm
+            kind={editing.kind}
+            initial={editing.item}
+            onSave={save}
+          />
         </Modal>
       )}
       <div className="desktop-health-chat">
@@ -461,10 +511,12 @@ function Nutrition({
   data,
   rows,
   del,
+  edit,
 }: {
   data: HealthData;
   rows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
+  edit: (kind: EntryKind, item: EditableEntry) => void;
 }) {
   const [q, setQ] = useState(""),
     [meal, setMeal] = useState("all");
@@ -629,6 +681,10 @@ function Nutrition({
             source: x.sourceText,
           }))}
           onDelete={(id) => del("nutritionEntries", id)}
+          onEdit={(id) => {
+            const item = data.nutritionEntries.find((entry) => entry.id === id);
+            if (item) edit("nutrition", item);
+          }}
         />
       </section>
     </>
@@ -639,11 +695,13 @@ function Exercise({
   rows,
   del,
   add,
+  edit,
 }: {
   data: HealthData;
   rows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
-  add: (v: "cardio" | "strength") => void;
+  add: (v: EntryKind) => void;
+  edit: (kind: EntryKind, item: EditableEntry) => void;
 }) {
   const types = Object.entries(
     Object.groupBy(data.cardioEntries, (x) => x.activityType),
@@ -730,11 +788,22 @@ function Exercise({
         cardio={data.cardioEntries}
         strength={data.strengthEntries}
         onDelete={del}
+        onEdit={edit}
       />
     </>
   );
 }
-function Body({ data }: { data: HealthData }) {
+function Body({
+  data,
+  del,
+  add,
+  edit,
+}: {
+  data: HealthData;
+  del: (kind: string, id: string) => void;
+  add: (kind: EntryKind) => void;
+  edit: (kind: EntryKind, item: EditableEntry) => void;
+}) {
   const w = data.bodyMetricEntries
       .filter((x) => x.weightKg != null)
       .sort((a, b) => a.date.localeCompare(b.date)),
@@ -820,6 +889,53 @@ function Body({ data }: { data: HealthData }) {
           </p>
         </section>
       </div>
+      <section className="panel">
+        <div className="section-head">
+          <div>
+            <h3>身体数据记录</h3>
+            <p className="muted">{data.bodyMetricEntries.length} 条</p>
+          </div>
+          <button className="primary" onClick={() => add("body")}>
+            <Plus size={16} /> 新增身体数据
+          </button>
+        </div>
+        <EntryTable
+          data={data}
+          rows={[...data.bodyMetricEntries]
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((entry) => ({
+              id: entry.id,
+              date: entry.date,
+              name: [
+                entry.weightKg != null ? `体重 ${entry.weightKg} kg` : null,
+                entry.bodyFatPercentage != null
+                  ? `体脂 ${entry.bodyFatPercentage}%`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "身体围度记录",
+              detail:
+                [
+                  entry.waistCm != null ? `腰围 ${entry.waistCm} cm` : null,
+                  entry.hipCm != null ? `臀围 ${entry.hipCm} cm` : null,
+                  entry.chestCm != null ? `胸围 ${entry.chestCm} cm` : null,
+                  entry.thighCm != null ? `大腿围 ${entry.thighCm} cm` : null,
+                  entry.armCm != null ? `臂围 ${entry.armCm} cm` : null,
+                ]
+                  .filter(Boolean)
+                  .join(" · ") || "无围度数据",
+              estimated: Boolean(entry.isEstimated),
+              source: entry.sourceText,
+            }))}
+          onDelete={(id) => del("bodyMetricEntries", id)}
+          onEdit={(id) => {
+            const item = data.bodyMetricEntries.find(
+              (entry) => entry.id === id,
+            );
+            if (item) edit("body", item);
+          }}
+        />
+      </section>
     </>
   );
 }
@@ -1031,6 +1147,7 @@ function EntryTable({
   data,
   rows,
   onDelete,
+  onEdit,
 }: {
   data: HealthData;
   rows: {
@@ -1042,6 +1159,7 @@ function EntryTable({
     source?: string;
   }[];
   onDelete: (id: string) => void;
+  onEdit: (id: string) => void;
 }) {
   if (rows.some((x) => x.id.startsWith("nutrition-"))) {
     const info = new Map(data.nutritionEntries.map((x) => [x.id, x]));
@@ -1106,12 +1224,20 @@ function EntryTable({
                             <span>{x.detail}</span>
                             {x.source && <p>“{x.source}”</p>}
                           </div>
-                          <button
-                            className="delete"
-                            onClick={() => onDelete(x.id)}
-                          >
-                            删除
-                          </button>
+                          <div className="entry-actions">
+                            <button
+                              className="edit"
+                              onClick={() => onEdit(x.id)}
+                            >
+                              编辑
+                            </button>
+                            <button
+                              className="delete"
+                              onClick={() => onDelete(x.id)}
+                            >
+                              删除
+                            </button>
+                          </div>
                         </div>
                       ))}
                     </section>
@@ -1165,9 +1291,14 @@ function EntryTable({
                     <span>{pounds(x.detail)}</span>
                     {x.source && <p>{x.source}</p>}
                   </div>
-                  <button className="delete" onClick={() => onDelete(x.id)}>
-                    删除
-                  </button>
+                  <div className="entry-actions">
+                    <button className="edit" onClick={() => onEdit(x.id)}>
+                      编辑
+                    </button>
+                    <button className="delete" onClick={() => onDelete(x.id)}>
+                      删除
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -1195,9 +1326,14 @@ function EntryTable({
                 </details>
               )}
             </div>
-            <button className="delete" onClick={() => onDelete(x.id)}>
-              删除
-            </button>
+            <div className="entry-actions">
+              <button className="edit" onClick={() => onEdit(x.id)}>
+                编辑
+              </button>
+              <button className="delete" onClick={() => onDelete(x.id)}>
+                删除
+              </button>
+            </div>
           </div>
         ))
       ) : (

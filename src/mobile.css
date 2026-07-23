@@ -1,4 +1,8 @@
 .mobile-chat-page, .cloud-inline { display: none; }
+.entry-actions { display: flex; align-items: center; gap: 4px; }
+.entry-actions button { border: 0; background: transparent; font-size: 11px; }
+.entry-actions .edit { color: #2f6b4f; }
+.dark .entry-actions .edit { color: #9ac4a7; }
 
 @media (max-width: 760px) {
   :root { font-size: 16px; }
@@ -51,6 +55,8 @@
   .entry-list { max-height: none; overflow: visible; margin-top: 10px; }
   .entry { grid-template-columns: 42px minmax(0, 1fr); gap: 9px; padding: 14px 2px; }
   .entry > .delete { grid-column: 2; justify-self: start; min-height: 30px; padding: 0; }
+  .entry > .entry-actions { grid-column: 2; justify-self: start; }
+  .entry-actions button { min-width: 44px; min-height: 36px; padding: 5px; }
   .workout-list { gap: 10px; }
   .workout-session { border-radius: 14px; }
   .workout-session > summary { grid-template-columns: 44px minmax(0, 1fr) 20px; gap: 9px; padding: 14px 11px; }
