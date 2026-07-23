@@ -483,7 +483,7 @@ function Dashboard({
           </article>
         ))}
       </div>
-      <div className="grid2">
+      <div className="grid2 overview-chart-grid">
         <ChartCard
           title="饮食热量与运动量"
           subtitle="kcal · 有氧记录值 + 无氧记录/估算值"
@@ -542,29 +542,6 @@ function Dashboard({
               </ComposedChart>
             </ResponsiveContainer>
           </div>
-        </ChartCard>
-        <ChartCard title="每日运动时间" subtitle="有氧与无氧分钟数">
-          <ResponsiveContainer>
-            <BarChart data={rows}>
-              <CartesianGrid vertical={false} />
-              <XAxis dataKey="label" />
-              <YAxis domain={[0, "auto"]} />
-              <Tooltip />
-              <Legend />
-              <Bar
-                dataKey="cardio"
-                name="有氧"
-                fill="#2f6b4f"
-                radius={[5, 5, 0, 0]}
-              />
-              <Bar
-                dataKey="strength"
-                name="无氧"
-                fill="#ef806d"
-                radius={[5, 5, 0, 0]}
-              />
-            </BarChart>
-          </ResponsiveContainer>
         </ChartCard>
       </div>
     </>

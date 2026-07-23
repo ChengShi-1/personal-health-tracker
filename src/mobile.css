@@ -38,6 +38,7 @@
 .dark .cycle-timeline article.luteal { background: #222c25; }
 .dark .cycle-advice p { color: #b8c4bb; }
 .phase-chart { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
+.overview-chart-grid { grid-template-columns: minmax(0, 1fr); }
 .phase-chart-legend {
   display: flex;
   justify-content: flex-end;
