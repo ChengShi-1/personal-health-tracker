@@ -364,7 +364,11 @@ function Dashboard({
     ["脂肪", fmt(last?.fat, 1), "g"],
     ["运动时间", fmt((last?.cardio ?? 0) + (last?.strength ?? 0)), "min"],
     ["有氧 / 无氧", `${last?.cardio ?? 0} / ${fmt(last?.strength)}`, "min"],
-    ["估算运动消耗", fmt(last?.burned), "kcal"],
+    [
+      last?.burnedEstimated ? "运动消耗（含估算）" : "运动消耗",
+      fmt(last?.burned),
+      "kcal",
+    ],
     [
       "记录热量差值",
       last?.calories != null && last?.burned != null
@@ -379,7 +383,8 @@ function Dashboard({
     <>
       <div className="notice">
         <b>数据说明</b>{" "}
-        未提供的数据保持为空；“记录热量差值”仅为摄入减去已记录运动消耗，不代表真实盈余或缺口。
+        无氧消耗缺失时，使用最近体重和 3.5 MET
+        估算；缺少时长时按每组约 1.5 分钟估算。“记录热量差值”仅为摄入减去已记录或估算的运动消耗，不代表真实盈余或缺口。
       </div>
       <div className="metrics">
         {cards.map(([a, b, c], i) => (
@@ -393,7 +398,7 @@ function Dashboard({
       <div className="grid2">
         <ChartCard
           title="饮食热量与运动量"
-          subtitle="kcal · 空缺保持为空"
+          subtitle="kcal · 有氧记录值 + 无氧记录/估算值"
           empty={!rows.some((x) => x.calories != null || x.burned != null)}
         >
           <ResponsiveContainer>
@@ -403,7 +408,18 @@ function Dashboard({
               <YAxis domain={[0, "auto"]} />
               <Tooltip />
               <Legend />
-              <Bar dataKey="burned" name="运动消耗" fill="#cfe96e" />
+              <Bar
+                dataKey="cardioBurn"
+                stackId="burned"
+                name="有氧消耗"
+                fill="#82b593"
+              />
+              <Bar
+                dataKey="strengthBurn"
+                stackId="burned"
+                name="无氧消耗（含估算）"
+                fill="#ef806d"
+              />
               <Line
                 dataKey="calories"
                 name="摄入热量"
