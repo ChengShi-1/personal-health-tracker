@@ -9,7 +9,8 @@ const schema={type:'object',additionalProperties:false,required:['reply','nutrit
   strengthEntries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','date','exerciseName','primaryBodyParts','secondaryBodyParts','sets','totalReps','weightKg','durationMinutes','isEstimated','estimationReason','sourceText','notes'],properties:{...common,exerciseName:{type:'string'},primaryBodyParts:{type:'array',items:{enum:bodyParts}},secondaryBodyParts:{type:'array',items:{enum:bodyParts}},sets:nullable('number'),totalReps:nullable('number'),weightKg:nullable('number'),durationMinutes:nullable('number')}}},
   bodyMetricEntries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','date','weightKg','bodyFatPercentage','waistCm','hipCm','isEstimated','estimationReason','sourceText','notes'],properties:{...common,weightKg:nullable('number'),bodyFatPercentage:nullable('number'),waistCm:nullable('number'),hipCm:nullable('number')}}}
 }};
-const instructions=`你是个人健康记录助手。把用户信息提取成结构化记录，并用简洁中文回复。今天日期由请求提供，时区 America/New_York。规则：1. 不编造用户未提及的事实；可合理估算营养或运动消耗，但必须 isEstimated=true 并写明原因。2. 不确定值用 null。3. 食物按独立 item 拆分，不把“+”、逗号、顿号连接的多种食物放在同一条。4. 无氧训练按独立动作拆分。5. 数值四舍五入到整数，重量统一 kg。6. 餐次仅 breakfast/lunch/dinner/snack；正餐之间吃的归 snack。7. ID 使用日期、类别和稳定短随机后缀组合，避免重复。8. 只提取用户本条消息明确记录的数据；问题、数据库查询或计划不写入记录。9. 回复中说明提取了哪些记录，并提醒用户确认后才保存。10. 用户已授权把与当前问题匹配的私有健康记录作为只读上下文提供给你。查询数据库时引用匹配记录的日期、份量和数值，并返回空记录数组；绝不能把历史记录当成今天的新记录。用户记录新食物或运动但未给数值时，可优先复用数据库中同名且份量相符的历史值，并说明来源；份量不同则按比例估算并标记 isEstimated。数据库没有匹配时必须明确说明。`;
+const instructions=`你是个人健康记录助手。把用户信息提取成结构化记录，并用简洁中文回复。今天日期由请求提供，时区 America/New_York。规则：1. 不编造用户未提及的事实；可合理估算营养或运动消耗，但必须 isEstimated=true 并写明原因。2. 食物和饮料只要缺少 caloriesKcal、proteinG、carbsG、fatG 或 fiberG，就根据名称、份量和常见营养数据合理估算所有缺失项，四舍五入到整数，并将 isEstimated=true、estimationReason 写清估算依据；用户明确提供的数值绝不覆盖。确实无法识别食物或份量时才保留 null。3. 食物按独立 item 拆分，不把“+”、逗号、顿号连接的多种食物放在同一条。4. 无氧训练按独立动作拆分。5. 数值四舍五入到整数，重量统一 kg。6. 餐次仅 breakfast/lunch/dinner/snack；正餐之间吃的归 snack。7. ID 使用日期、类别和稳定短随机后缀组合，避免重复。8. 只提取用户本条消息明确记录的数据；问题、数据库查询或计划不写入记录。9. 回复中说明提取了哪些记录，并提醒用户确认后才保存。10. 用户已授权把与当前问题匹配的私有健康记录作为只读上下文提供给你。查询数据库时引用匹配记录的日期、份量和数值，并返回空记录数组；绝不能把历史记录当成今天的新记录。用户记录新食物或运动但未给数值时，可优先复用数据库中同名且份量相符的历史值，并说明来源；份量不同则按比例估算并标记 isEstimated。数据库没有匹配时必须明确说明。`;
+const macroSchema={type:'object',additionalProperties:false,required:['entries'],properties:{entries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','caloriesKcal','proteinG','carbsG','fatG','fiberG','estimationReason'],properties:{id:{type:'string'},caloriesKcal:nullable('number'),proteinG:nullable('number'),carbsG:nullable('number'),fatG:nullable('number'),fiberG:nullable('number'),estimationReason:{type:'string'}}}}}};
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{...cors,'Content-Type':'application/json; charset=utf-8'}});
 function outputText(payload:any){if(typeof payload.output_text==='string')return payload.output_text;for(const item of payload.output||[])for(const content of item.content||[])if(content.type==='output_text'&&content.text)return content.text;return null}
 
@@ -72,6 +73,22 @@ async function processJob(jobId:string,userId:string,request:{message:string;his
   }
 }
 
+async function processMacroBackfill(jobId:string,entries:any[],supabaseUrl:string,serviceKey:string,apiKey:string){
+  try{
+    await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'running',started_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
+    const estimates:any[]=[];
+    for(let index=0;index<entries.length;index+=35){
+      const chunk=entries.slice(index,index+35).map((entry:any)=>({id:entry.id,date:entry.date,foodName:entry.foodName,quantity:entry.quantity,unit:entry.unit,sourceText:entry.sourceText,notes:entry.notes,existing:{caloriesKcal:entry.caloriesKcal,proteinG:entry.proteinG,carbsG:entry.carbsG,fatG:entry.fatG,fiberG:entry.fiberG}}));
+      const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions:'根据食物名称、份量、原始描述和已有数值，估算每条记录缺失的热量、蛋白质、碳水、脂肪和纤维。保留已有明确值；只补缺失值。所有数值四舍五入到整数。无法合理识别时用 null。每条写简洁中文估算原因。',input:[{role:'user',content:JSON.stringify(chunk)}],text:{format:{type:'json_schema',name:'nutrition_macro_backfill',strict:true,schema:macroSchema}}})});
+      const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);const payload=JSON.parse(raw);if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);const text=outputText(payload);if(!text)throw new Error('模型没有返回营养估算');estimates.push(...JSON.parse(text).entries);
+    }
+    const byId=new Map(estimates.map((item:any)=>[item.id,item]));
+    const updated=entries.map((entry:any)=>{const estimate=byId.get(entry.id);if(!estimate)return entry;return{...entry,caloriesKcal:entry.caloriesKcal??estimate.caloriesKcal,proteinG:entry.proteinG??estimate.proteinG,carbsG:entry.carbsG??estimate.carbsG,fatG:entry.fatG??estimate.fatG,fiberG:entry.fiberG??estimate.fiberG,isEstimated:true,estimationReason:[entry.estimationReason,estimate.estimationReason].filter(Boolean).join('；')}}).filter((entry:any)=>byId.has(entry.id));
+    const result={reply:`已为 ${updated.length} 条历史饮食记录估算缺失营养素。`,nutritionEntries:updated,cardioEntries:[],strengthEntries:[],bodyMetricEntries:[]};
+    await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'completed',result,error:null,completed_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
+  }catch(error){await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'failed',error:error instanceof Error?error.message:'营养估算失败',completed_at:new Date().toISOString(),updated_at:new Date().toISOString()})})}
+}
+
 Deno.serve(async req=>{
   if(req.method==='OPTIONS')return new Response('ok',{headers:cors});
   if(req.method!=='POST')return json({error:'Method not allowed'},405);
@@ -103,6 +120,15 @@ Deno.serve(async req=>{
       const response=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${encodeURIComponent(body.jobId)}&user_id=eq.${user.id}&select=id,status,result,error,created_at,updated_at`,{headers:{Accept:'application/vnd.pgrst.object+json'}});
       if(!response.ok)return json({error:response.status===406?'找不到该任务':'任务查询失败'},response.status===406?404:500);
       return json(await response.json());
+    }
+    if(body.action==='backfill-macros'){
+      const entries=Array.isArray(body.entries)?body.entries.filter((entry:any)=>entry&&(entry.caloriesKcal==null||entry.proteinG==null||entry.carbsG==null||entry.fatG==null||entry.fiberG==null)):[];
+      if(!entries.length)return json({error:'没有需要补全的饮食记录'},400);
+      const jobId=crypto.randomUUID(),request={kind:'macro-backfill',count:entries.length};
+      const created=await jobRequest(supabaseUrl,serviceKey,'health_chat_jobs',{method:'POST',headers:{Prefer:'return=minimal'},body:JSON.stringify({id:jobId,user_id:user.id,status:'queued',request})});
+      if(!created.ok)throw new Error(`无法创建营养补全任务（HTTP ${created.status}）`);
+      EdgeRuntime.waitUntil(processMacroBackfill(jobId,entries,supabaseUrl,serviceKey,apiKey));
+      return json({jobId,status:'queued'},202);
     }
     const {message,history=[],today}=body;if(typeof message!=='string'||!message.trim())return json({error:'请输入健康记录'},400);
     const jobId=crypto.randomUUID();

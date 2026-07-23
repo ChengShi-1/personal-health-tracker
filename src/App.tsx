@@ -63,6 +63,7 @@ import { DailyExerciseList } from "./components/DailyExerciseList";
 import { HealthChat } from "./components/HealthChat";
 import type { ProposedChanges } from "./components/HealthChat";
 import { CloudSync } from "./components/CloudSync";
+import { supabase } from "./lib/supabase";
 void useMemo;
 type Page =
   | "chat"
@@ -103,6 +104,10 @@ export default function App() {
     [recordChooser, setRecordChooser] = useState<
       "category" | "exercise" | null
     >(null),
+    [macroJobId, setMacroJobId] = useState<string | null>(
+      () => localStorage.getItem("nutrition-macro-job"),
+    ),
+    [macroStatus, setMacroStatus] = useState(""),
     [editing, setEditing] = useState<{
       kind: EntryKind;
       item: EditableEntry;
@@ -126,6 +131,44 @@ export default function App() {
     viewport.addEventListener("change", syncPageWithViewport);
     return () => viewport.removeEventListener("change", syncPageWithViewport);
   }, []);
+  useEffect(() => {
+    if (!macroJobId || !supabase) return;
+    let active = true;
+    let timer = 0;
+    const check = async () => {
+      const { data: job, error } = await supabase.functions.invoke(
+        "health-chat",
+        { body: { action: "status", jobId: macroJobId } },
+      );
+      if (!active) return;
+      if (!error && job?.status === "completed" && job.result) {
+        const changes = job.result as ProposedChanges;
+        setData((current) => {
+          const next = new Map(
+            current.nutritionEntries.map((entry) => [entry.id, entry]),
+          );
+          changes.nutritionEntries.forEach((entry) => next.set(entry.id, entry));
+          return { ...current, nutritionEntries: [...next.values()] };
+        });
+        localStorage.removeItem("nutrition-macro-job");
+        setMacroJobId(null);
+        setMacroStatus(`已补全 ${changes.nutritionEntries.length} 条`);
+        return;
+      }
+      if (!error && job?.status === "failed") {
+        localStorage.removeItem("nutrition-macro-job");
+        setMacroJobId(null);
+        setMacroStatus(job.error || "补全失败");
+        return;
+      }
+      if (active) timer = window.setTimeout(check, 2500);
+    };
+    void check();
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+  }, [macroJobId]);
   const all = daily(data),
     filtered = all.filter((x) => x.date >= range.from && x.date <= range.to);
   const save = (kind: EntryKind, item: EditableEntry) => {
@@ -152,6 +195,32 @@ export default function App() {
   };
   const edit = (kind: EntryKind, item: EditableEntry) =>
     setEditing({ kind, item });
+  const backfillMacros = async () => {
+    if (!supabase || macroJobId) return;
+    const missing = data.nutritionEntries.filter(
+      (entry) =>
+        entry.caloriesKcal == null ||
+        entry.proteinG == null ||
+        entry.carbsG == null ||
+        entry.fatG == null ||
+        entry.fiberG == null,
+    );
+    if (!missing.length) {
+      setMacroStatus("没有缺失营养素");
+      return;
+    }
+    setMacroStatus(`正在估算 ${missing.length} 条…`);
+    const { data: result, error } = await supabase.functions.invoke(
+      "health-chat",
+      { body: { action: "backfill-macros", entries: missing } },
+    );
+    if (error || !result?.jobId) {
+      setMacroStatus(error?.message || "无法创建补全任务");
+      return;
+    }
+    localStorage.setItem("nutrition-macro-job", result.jobId);
+    setMacroJobId(result.jobId);
+  };
   const applyChat = (changes: ProposedChanges) =>
     setData((current) => {
       const merge = <T extends { id: string }>(
@@ -326,7 +395,15 @@ export default function App() {
         </div>
         {page === "dashboard" && <Dashboard data={data} rows={filtered} />}{" "}
         {page === "nutrition" && (
-          <Nutrition data={data} rows={filtered} del={del} edit={edit} />
+          <Nutrition
+            data={data}
+            rows={filtered}
+            del={del}
+            edit={edit}
+            onBackfill={backfillMacros}
+            backfillStatus={macroStatus}
+            backfillRunning={Boolean(macroJobId)}
+          />
         )}{" "}
         {page === "exercise" && (
           <Exercise
@@ -674,11 +751,17 @@ function Nutrition({
   rows,
   del,
   edit,
+  onBackfill,
+  backfillStatus,
+  backfillRunning,
 }: {
   data: HealthData;
   rows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
   edit: (kind: EntryKind, item: EditableEntry) => void;
+  onBackfill: () => void;
+  backfillStatus: string;
+  backfillRunning: boolean;
 }) {
   const [q, setQ] = useState(""),
     [meal, setMeal] = useState("all");
@@ -830,6 +913,16 @@ function Nutrition({
               <option value="snack">加餐</option>
               <option value="drink">饮料</option>
             </select>
+            <button
+              className="macro-backfill"
+              onClick={onBackfill}
+              disabled={backfillRunning}
+            >
+              {backfillRunning ? "后台估算中…" : "补全缺失营养素"}
+            </button>
+            {backfillStatus && (
+              <small className="macro-backfill-status">{backfillStatus}</small>
+            )}
           </div>
         </div>
         <EntryTable

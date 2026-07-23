@@ -68,6 +68,8 @@
 .record-choice-grid button span { color: #778078; font-size: 10px; }
 .record-choice-grid .choice-back { grid-column: 1 / -1; min-height: 44px; place-items: center; color: #68736b; }
 .dark .record-choice-grid > button { color: #e5eee7; background: #202a23; border-color: #3a493e; }
+.filters .macro-backfill { color: #2f6b4f; background: #edf5ed; border-color: #bfd4c3; }
+.macro-backfill-status { color: #718078; font-size: 10px; }
 .chat-fab.loading::after {
   content: "";
   position: absolute;
