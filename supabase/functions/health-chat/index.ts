@@ -23,13 +23,25 @@ async function jobRequest(supabaseUrl:string,serviceKey:string,path:string,init:
   });
 }
 
+function normalizedSearchText(value:string){
+  return value.toLocaleLowerCase()
+    .replace(/[＋+，,、；;：:（）()[\]{}"'“”‘’·/\\_-]+/g,' ')
+    .replace(/\b([a-z]{3,})s\b/g,'$1')
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
 function matchedRows(rows:any[],message:string,name:(row:any)=>string,limit:number){
-  const lower=message.toLocaleLowerCase();
+  const normalizedMessage=normalizedSearchText(message);
+  const messageTokens=normalizedMessage.split(' ').filter((token)=>token.length>1);
   return rows.map((row:any)=>{
-    const candidate=name(row).trim().toLocaleLowerCase();
-    const score=candidate.length>1&&lower.includes(candidate)?100:0;
+    const candidate=normalizedSearchText(name(row));
+    const candidateTokens=candidate.split(' ').filter((token)=>token.length>1);
+    const exact=candidate.length>1&&(normalizedMessage.includes(candidate)||candidate.includes(normalizedMessage));
+    const tokenMatches=candidateTokens.filter((token)=>messageTokens.some((query)=>query.includes(token)||token.includes(query))).length;
+    const score=exact?100:tokenMatches;
     return {row,score};
-  }).filter((item:any)=>item.score>0).slice(0,limit).map((item:any)=>item.row);
+  }).filter((item:any)=>item.score>0).sort((a:any,b:any)=>b.score-a.score).slice(0,limit).map((item:any)=>item.row);
 }
 
 async function databaseContext(userId:string,message:string,supabaseUrl:string,serviceKey:string){
@@ -47,13 +59,13 @@ async function databaseContext(userId:string,message:string,supabaseUrl:string,s
   const historicalQuery=/数据库|历史|以前|之前|上次|最近|寻找|找一下|记录里/.test(message);
   const bodyQuery=/体重|体脂|腰围|臀围|胸围|腿围|臂围|身体/.test(message);
   return {
-    disclosure:'Only records relevant to the current user message are included.',
+    disclosure:'The signed-in user authorized read-only matching against prior private health records. Explicit database/history searches may include the full available history when local name matching finds nothing.',
     matchedNutrition,
     matchedCardio,
     matchedStrength,
-    recentNutrition:historicalQuery&&!matchedNutrition.length?nutrition.slice(0,30):[],
-    recentCardio:historicalQuery&&!matchedCardio.length?cardio.slice(0,20):[],
-    recentStrength:historicalQuery&&!matchedStrength.length?strength.slice(0,25):[],
+    searchableNutritionHistory:historicalQuery&&!matchedNutrition.length?nutrition:[],
+    searchableCardioHistory:historicalQuery&&!matchedCardio.length?cardio:[],
+    searchableStrengthHistory:historicalQuery&&!matchedStrength.length?strength:[],
     recentBodyMetrics:bodyQuery?body.slice(0,15):[],
   };
 }
