@@ -39,6 +39,16 @@
 .dark .cycle-advice p { color: #b8c4bb; }
 .phase-chart { height: 100%; display: grid; grid-template-rows: auto minmax(0, 1fr); }
 .overview-chart-grid { grid-template-columns: minmax(0, 1fr); }
+.dashboard-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.metrics .metric-group { min-height: 112px; }
+.metric-group-values { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; }
+.metric-group-values > div { min-width: 0; padding: 0 10px; border-left: 1px solid #e5e8e2; }
+.metric-group-values > div:first-child { padding-left: 0; border-left: 0; }
+.metric-group-values small, .metric-group-values b { display: block; }
+.metric-group-values small { overflow: hidden; color: #7b847c; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.metric-group-values b { margin-top: 8px; font: 500 18px Georgia, serif; white-space: nowrap; }
+.metric-group-values i { margin-left: 3px; color: #8a918a; font: normal 9px Inter, sans-serif; }
+.dark .metric-group-values > div { border-color: #354138; }
 .phase-chart-legend {
   display: flex;
   justify-content: flex-end;
@@ -77,6 +87,9 @@
   .metrics span { font-size: 10px; }
   .metrics .hero-metric { grid-column: 1 / -1; min-height: 112px; }
   .metrics .hero-metric strong { font-size: 34px; }
+  .dashboard-metrics .metric-group { grid-column: 1 / -1; }
+  .metric-group-values > div { padding: 0 8px; }
+  .metric-group-values b { font-size: 17px; }
 
   .grid2 { gap: 12px; margin-bottom: 12px; }
   .panel { padding: 15px 13px; border-radius: 16px; }

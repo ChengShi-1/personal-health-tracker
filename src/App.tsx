@@ -446,17 +446,6 @@ function Dashboard({
     ].map((x) => x.date),
   ).size;
   const cards = [
-    ["摄入热量", fmt(last?.calories), "kcal"],
-    ["蛋白质", fmt(last?.protein, 1), "g"],
-    ["碳水", fmt(last?.carbs, 1), "g"],
-    ["脂肪", fmt(last?.fat, 1), "g"],
-    ["运动时间", fmt((last?.cardio ?? 0) + (last?.strength ?? 0)), "min"],
-    ["有氧 / 无氧", `${last?.cardio ?? 0} / ${fmt(last?.strength)}`, "min"],
-    [
-      last?.burnedEstimated ? "运动消耗（含估算）" : "运动消耗",
-      fmt(last?.burned),
-      "kcal",
-    ],
     [
       "记录热量差值",
       last?.calories != null && last?.burned != null
@@ -474,9 +463,59 @@ function Dashboard({
         无氧消耗缺失时，使用最近体重和 3.5 MET
         估算；缺少时长时按每组约 1.5 分钟估算。“记录热量差值”仅为摄入减去已记录或估算的运动消耗，不代表真实盈余或缺口。
       </div>
-      <div className="metrics">
-        {cards.map(([a, b, c], i) => (
-          <article key={a} className={i === 0 ? "hero-metric" : ""}>
+      <div className="metrics dashboard-metrics">
+        <article className="hero-metric">
+          <p>摄入热量</p>
+          <strong>{fmt(last?.calories)}</strong>
+          <span>kcal</span>
+        </article>
+        <article className="metric-group macro-metric">
+          <p>宏量营养素</p>
+          <div className="metric-group-values">
+            <div>
+              <small>蛋白质</small>
+              <b>{fmt(last?.protein, 1)}g</b>
+            </div>
+            <div>
+              <small>碳水</small>
+              <b>{fmt(last?.carbs, 1)}g</b>
+            </div>
+            <div>
+              <small>脂肪</small>
+              <b>{fmt(last?.fat, 1)}g</b>
+            </div>
+          </div>
+        </article>
+        <article className="metric-group exercise-metric">
+          <p>运动概况</p>
+          <div className="metric-group-values">
+            <div>
+              <small>运动时间</small>
+              <b>
+                {fmt((last?.cardio ?? 0) + (last?.strength ?? 0))}
+                <i>min</i>
+              </b>
+            </div>
+            <div>
+              <small>
+                {last?.burnedEstimated ? "消耗（含估算）" : "运动消耗"}
+              </small>
+              <b>
+                {fmt(last?.burned)}
+                <i>kcal</i>
+              </b>
+            </div>
+            <div>
+              <small>有氧 / 无氧</small>
+              <b>
+                {last?.cardio ?? 0} / {fmt(last?.strength)}
+                <i>min</i>
+              </b>
+            </div>
+          </div>
+        </article>
+        {cards.map(([a, b, c]) => (
+          <article key={a}>
             <p>{a}</p>
             <strong>{b}</strong>
             <span>{c}</span>
