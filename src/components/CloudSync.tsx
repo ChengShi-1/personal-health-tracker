@@ -37,13 +37,22 @@ export function CloudSync({
     let active = true;
     (async () => {
       setStatus("同步中");
-      const { data: cloudData, error } = await supabase.rpc("get_health_data");
+      const [healthResult, menstrualResult] = await Promise.all([
+        supabase.rpc("get_health_data"),
+        supabase.rpc("get_menstrual_entries"),
+      ]);
       if (!active) return;
-      if (error) {
+      if (healthResult.error || menstrualResult.error) {
         setStatus("同步失败");
         return;
       }
-      const normalized = cloudData as HealthData | null;
+      const normalized = healthResult.data
+        ? ({
+            ...(healthResult.data as HealthData),
+            menstrualEntries:
+              (menstrualResult.data as HealthData["menstrualEntries"]) ?? [],
+          } as HealthData)
+        : null;
       onCloudLoad(normalized ?? emptyHealthData());
       loaded.current = true;
       setStatus(normalized?.nutritionEntries?.length ? "已同步" : "云端暂无数据");
@@ -57,10 +66,15 @@ export function CloudSync({
     window.clearTimeout(timer.current);
     timer.current = window.setTimeout(async () => {
       setStatus("保存中");
-      const { error } = await supabase.rpc("save_health_data", {
-        payload: data,
-      });
-      setStatus(error ? "保存失败" : "已同步");
+      const [healthResult, menstrualResult] = await Promise.all([
+        supabase.rpc("save_health_data", { payload: data }),
+        supabase.rpc("save_menstrual_entries", {
+          payload: data.menstrualEntries,
+        }),
+      ]);
+      setStatus(
+        healthResult.error || menstrualResult.error ? "保存失败" : "已同步",
+      );
     }, 900);
     return () => window.clearTimeout(timer.current);
   }, [data, session]);

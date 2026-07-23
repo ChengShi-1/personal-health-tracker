@@ -3,6 +3,40 @@
 .entry-actions button { border: 0; background: transparent; font-size: 11px; }
 .entry-actions .edit { color: #2f6b4f; }
 .dark .entry-actions .edit { color: #9ac4a7; }
+.cycle-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+  padding: 24px;
+  color: #fff;
+  background: linear-gradient(135deg, #753f4a, #a65d69);
+  border-radius: 16px;
+}
+.cycle-hero h2 { margin: 0 0 7px; font: 500 28px Georgia, serif; }
+.cycle-hero p:last-child { margin: 0; font-size: 12px; opacity: .8; }
+.cycle-hero .eyebrow { color: #f4d7dc; }
+.cycle-hero .primary { color: #713d47; background: #fff; white-space: nowrap; }
+.cycle-timeline { margin-bottom: 16px; }
+.cycle-timeline > div { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 16px 0 12px; }
+.cycle-timeline article { padding: 13px; border: 1px solid #e3e3dd; border-radius: 11px; opacity: .55; }
+.cycle-timeline article b, .cycle-timeline article span { display: block; }
+.cycle-timeline article b { font-size: 12px; }
+.cycle-timeline article span { margin-top: 5px; color: #7c847d; font-size: 10px; }
+.cycle-timeline article.active { opacity: 1; outline: 2px solid #2f6b4f; }
+.cycle-timeline article.menstrual { background: #fff0f1; }
+.cycle-timeline article.follicular { background: #f1f7eb; }
+.cycle-timeline article.ovulation { background: #fff7dc; }
+.cycle-timeline article.luteal { background: #f3eff9; }
+.cycle-advice p { color: #5f6b63; font-size: 12px; line-height: 1.75; }
+.cycle-notice { margin-top: 16px; }
+.dark .cycle-timeline article { border-color: #3b493f; color: #edf3ee; }
+.dark .cycle-timeline article.menstrual,
+.dark .cycle-timeline article.follicular,
+.dark .cycle-timeline article.ovulation,
+.dark .cycle-timeline article.luteal { background: #222c25; }
+.dark .cycle-advice p { color: #b8c4bb; }
 
 @media (max-width: 760px) {
   :root { font-size: 16px; }
@@ -116,6 +150,12 @@
   .mobile-nav button { flex: 1; min-width: 0; min-height: 48px; padding: 4px 1px; border-radius: 11px; }
   .mobile-nav button.active { background: #2a4a38; }
   .mobile-nav small { font-size: 10px; }
+  .cycle-hero { align-items: flex-start; padding: 19px 15px; border-radius: 14px; }
+  .cycle-hero h2 { font-size: 24px; }
+  .cycle-hero .primary { min-width: 92px; padding: 9px 10px; font-size: 11px; }
+  .cycle-timeline > div { grid-template-columns: 1fr 1fr; }
+  .cycle-timeline article { min-height: 74px; }
+  .cycle-advice { grid-template-columns: 1fr; }
 
   .cloud-pill { right: 74px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 36px; }
   .cloud-popover { left: 12px; right: 12px; bottom: calc(126px + env(safe-area-inset-bottom)); width: auto; border-radius: 16px; }

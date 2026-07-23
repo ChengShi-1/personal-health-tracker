@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   addMonths,
+  differenceInCalendarDays,
   endOfMonth,
   endOfWeek,
   format,
@@ -37,6 +38,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Dumbbell,
+  Droplets,
   FileDown,
   LayoutDashboard,
   MessageCircle,
@@ -67,6 +69,7 @@ type Page =
   | "nutrition"
   | "exercise"
   | "body"
+  | "cycle"
   | "calendar"
   | "audit";
 const COLORS = ["#2f6b4f", "#cfe96e", "#ef806d", "#6aa6a0", "#9f80c9"];
@@ -75,6 +78,7 @@ const nav: [Page, string, typeof Activity][] = [
   ["nutrition", "饮食", Apple],
   ["exercise", "运动", Dumbbell],
   ["body", "身体趋势", Scale],
+  ["cycle", "经期", Droplets],
   ["calendar", "日历", CalendarDays],
   ["audit", "数据审计", Activity],
 ];
@@ -84,6 +88,7 @@ const mobileNav: [Page, string, typeof Activity][] = [
   ["nutrition", "饮食", Apple],
   ["exercise", "运动", Dumbbell],
   ["calendar", "日历", CalendarDays],
+  ["cycle", "经期", Droplets],
 ];
 export default function App() {
   const [data, setData] = useState<HealthData>(() => emptyHealthData()),
@@ -127,7 +132,9 @@ export default function App() {
           ? "cardioEntries"
           : kind === "strength"
             ? "strengthEntries"
-            : "bodyMetricEntries";
+            : kind === "body"
+              ? "bodyMetricEntries"
+              : "menstrualEntries";
     setData((current) => ({
       ...current,
       [key]: editing
@@ -326,6 +333,9 @@ export default function App() {
         {page === "body" && (
           <Body data={data} del={del} add={setAdd} edit={edit} />
         )}{" "}
+        {page === "cycle" && (
+          <Cycle data={data} del={del} add={setAdd} edit={edit} />
+        )}{" "}
         {page === "calendar" && (
           <Calendar data={data} del={del} edit={edit} />
         )}{" "}
@@ -356,7 +366,9 @@ export default function App() {
                 ? "新增有氧"
                 : add === "strength"
                   ? "新增无氧"
-                  : "新增身体数据"
+                  : add === "body"
+                    ? "新增身体数据"
+                    : "新增经期记录"
           }
           onClose={() => setAdd(null)}
         >
@@ -372,7 +384,9 @@ export default function App() {
                 ? "编辑有氧"
                 : editing.kind === "strength"
                   ? "编辑无氧"
-                  : "编辑身体数据"
+                  : editing.kind === "body"
+                    ? "编辑身体数据"
+                    : "编辑经期记录"
           }
           onClose={() => setEditing(null)}
         >
@@ -938,6 +952,226 @@ function Body({
           }}
         />
       </section>
+    </>
+  );
+}
+type CyclePhase = "menstrual" | "follicular" | "ovulation" | "luteal";
+const phaseLabels: Record<CyclePhase, string> = {
+  menstrual: "月经期",
+  follicular: "卵泡期",
+  ovulation: "排卵期",
+  luteal: "黄体期",
+};
+function cycleStatus(data: HealthData, date: string) {
+  const entries = [...data.menstrualEntries].sort((a, b) =>
+    a.date.localeCompare(b.date),
+  );
+  if (!entries.length) return null;
+  const intervals = entries
+    .slice(1)
+    .map((entry, index) =>
+      differenceInCalendarDays(
+        parseISO(entry.date),
+        parseISO(entries[index].date),
+      ),
+    )
+    .filter((days) => days >= 21 && days <= 35);
+  const cycleLength = intervals.length
+    ? Math.round(intervals.reduce((sum, days) => sum + days, 0) / intervals.length)
+    : 28;
+  const latest =
+    entries.filter((entry) => entry.date <= date).at(-1) ?? entries[0];
+  const rawDay =
+    differenceInCalendarDays(parseISO(date), parseISO(latest.date)) + 1;
+  const cycleDay = ((Math.max(1, rawDay) - 1) % cycleLength) + 1;
+  const recordedDuration = latest.endDate
+    ? differenceInCalendarDays(parseISO(latest.endDate), parseISO(latest.date)) +
+      1
+    : 5;
+  const menstrualDays = Math.min(Math.max(recordedDuration, 1), 10);
+  const ovulationDay = Math.max(menstrualDays + 2, cycleLength - 14);
+  let phase: CyclePhase;
+  if (cycleDay <= menstrualDays) phase = "menstrual";
+  else if (cycleDay < ovulationDay) phase = "follicular";
+  else if (cycleDay <= ovulationDay + 1) phase = "ovulation";
+  else phase = "luteal";
+  const insideRecordedPeriod =
+    date >= latest.date && Boolean(latest.endDate && date <= latest.endDate);
+  return {
+    phase,
+    cycleDay,
+    cycleLength,
+    menstrualDays,
+    ovulationDay,
+    isPrediction: phase !== "menstrual" || !insideRecordedPeriod,
+    irregular: intervals.length > 1 && Math.max(...intervals) - Math.min(...intervals) > 7,
+  };
+}
+const cycleAdvice: Record<
+  CyclePhase,
+  { training: string[]; nutrition: string[] }
+> = {
+  menstrual: {
+    training: [
+      "没有明显不适时可照常训练；腹痛、疲劳或经量较大时，可降低强度、缩短训练或休息。",
+      "散步、轻松有氧、活动度训练和较轻的力量训练都是可选项，以主观感受为准。",
+    ],
+    nutrition: [
+      "保持正常均衡饮食、蛋白质和水分，不必因经期强制改变热量目标。",
+      "经量较大者可关注含铁食物；铁补充剂应先咨询医生或营养师。",
+    ],
+  },
+  follicular: {
+    training: [
+      "感觉良好时可按原计划渐进训练力量、容量或有氧，不需要因为阶段标签强制加量。",
+      "继续记录表现与恢复，用个人趋势决定训练负荷。",
+    ],
+    nutrition: [
+      "维持足够总能量、蛋白质和训练前后碳水，支持恢复与渐进训练。",
+      "没有可靠证据要求卵泡期采用特殊饮食比例。",
+    ],
+  },
+  ovulation: {
+    training: [
+      "可以正常训练；预测排卵期并不代表表现一定达到峰值。",
+      "按当天睡眠、疼痛和主观疲劳调整强度，正常热身并保持动作控制。",
+    ],
+    nutrition: [
+      "保持日常均衡饮食和补水；训练量高时相应补充碳水和蛋白质。",
+      "此阶段无需额外补充特定保健品。",
+    ],
+  },
+  luteal: {
+    training: [
+      "可以维持原计划；若出现 PMS、睡眠变差或主观用力感升高，可减少容量或安排恢复训练。",
+      "规律有氧活动可能帮助部分人缓解 PMS，但以症状反应为准。",
+    ],
+    nutrition: [
+      "保持均衡饮食；若食欲波动，可尝试规律、较小份餐食和富含复合碳水的食物。",
+      "不要因短期体重或水分波动过度限制热量。",
+    ],
+  },
+};
+function Cycle({
+  data,
+  del,
+  add,
+  edit,
+}: {
+  data: HealthData;
+  del: (kind: string, id: string) => void;
+  add: (kind: EntryKind) => void;
+  edit: (kind: EntryKind, item: EditableEntry) => void;
+}) {
+  const today = format(new Date(), "yyyy-MM-dd");
+  const status = cycleStatus(data, today);
+  const advice = status ? cycleAdvice[status.phase] : null;
+  const flowLabels = { light: "少", medium: "中", heavy: "多" } as const;
+  return (
+    <>
+      <section className="cycle-hero">
+        <div>
+          <p className="eyebrow">CYCLE TRACKER</p>
+          <h2>
+            {status
+              ? `${status.isPrediction ? "预测" : ""}${phaseLabels[status.phase]}`
+              : "尚未记录经期"}
+          </h2>
+          <p>
+            {status
+              ? `周期第 ${status.cycleDay} 天 · 当前平均周期约 ${status.cycleLength} 天`
+              : "添加最近一次月经开始日后，才能显示周期阶段。"}
+          </p>
+        </div>
+        <button className="primary" onClick={() => add("menstrual")}>
+          <Plus size={16} /> 记录经期
+        </button>
+      </section>
+      {status && (
+        <>
+          <section className="panel cycle-timeline">
+            <h3>周期阶段</h3>
+            <div>
+              {(
+                [
+                  ["menstrual", `第 1–${status.menstrualDays} 天`],
+                  [
+                    "follicular",
+                    `第 ${status.menstrualDays + 1}–${status.ovulationDay - 1} 天`,
+                  ],
+                  [
+                    "ovulation",
+                    `约第 ${status.ovulationDay}–${status.ovulationDay + 1} 天`,
+                  ],
+                  [
+                    "luteal",
+                    `第 ${status.ovulationDay + 2}–${status.cycleLength} 天`,
+                  ],
+                ] as [CyclePhase, string][]
+              ).map(([phase, range]) => (
+                <article
+                  key={phase}
+                  className={status.phase === phase ? `active ${phase}` : phase}
+                >
+                  <b>{phaseLabels[phase]}</b>
+                  <span>{range}</span>
+                </article>
+              ))}
+            </div>
+            <p className="muted">
+              除已记录的月经日期外，其他阶段均为日历预测，不能确认真实排卵日。
+              {status.irregular && " 最近周期波动较大，预测可信度较低。"}
+            </p>
+          </section>
+          <div className="grid2 cycle-advice">
+            <section className="panel">
+              <h3>{phaseLabels[status.phase]} · 健身建议</h3>
+              {advice?.training.map((item) => <p key={item}>{item}</p>)}
+            </section>
+            <section className="panel">
+              <h3>{phaseLabels[status.phase]} · 饮食建议</h3>
+              {advice?.nutrition.map((item) => <p key={item}>{item}</p>)}
+            </section>
+          </div>
+        </>
+      )}
+      <section className="panel">
+        <div className="section-head">
+          <div>
+            <h3>经期记录</h3>
+            <p className="muted">{data.menstrualEntries.length} 条</p>
+          </div>
+          <button className="primary" onClick={() => add("menstrual")}>
+            <Plus size={16} /> 新增
+          </button>
+        </div>
+        <EntryTable
+          data={data}
+          rows={[...data.menstrualEntries]
+            .sort((a, b) => b.date.localeCompare(a.date))
+            .map((entry) => ({
+              id: entry.id,
+              date: entry.date,
+              name: `月经期${entry.endDate ? ` · 至 ${entry.endDate}` : ""}`,
+              detail: [
+                entry.flow ? `经量 ${flowLabels[entry.flow]}` : null,
+                entry.symptoms.length ? entry.symptoms.join("、") : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || "未记录经量或症状",
+              estimated: entry.isEstimated,
+            }))}
+          onDelete={(id) => del("menstrualEntries", id)}
+          onEdit={(id) => {
+            const item = data.menstrualEntries.find((entry) => entry.id === id);
+            if (item) edit("menstrual", item);
+          }}
+        />
+      </section>
+      <div className="notice cycle-notice">
+        建议用于自我观察，不代替医疗意见。周期少于 21 天、超过 35
+        天、经期超过 7 天、异常出血或症状影响生活时，建议咨询医生。
+      </div>
     </>
   );
 }

@@ -4,16 +4,23 @@ import type {
   BodyPart,
   BodyMetricEntry,
   CardioEntry,
+  MenstrualEntry,
   NutritionEntry,
   StrengthEntry,
 } from "../types/health";
 
-export type EntryKind = "nutrition" | "cardio" | "strength" | "body";
+export type EntryKind =
+  | "nutrition"
+  | "cardio"
+  | "strength"
+  | "body"
+  | "menstrual";
 export type EditableEntry =
   | NutritionEntry
   | CardioEntry
   | StrengthEntry
-  | BodyMetricEntry;
+  | BodyMetricEntry
+  | MenstrualEntry;
 
 const parts: BodyPart[] = [
   "Chest",
@@ -41,6 +48,15 @@ function initialForm(kind: EntryKind, entry?: EditableEntry) {
     notes: entry?.notes ?? "",
   };
   if (!entry) return base;
+  if (kind === "menstrual") {
+    const item = entry as MenstrualEntry;
+    return {
+      ...base,
+      endDate: item.endDate ?? "",
+      flow: item.flow ?? "",
+      symptoms: item.symptoms.join("、"),
+    };
+  }
   if (kind === "nutrition") {
     const item = entry as NutritionEntry;
     return {
@@ -182,10 +198,22 @@ export function EntryForm({
         thighCm: numberOrNull(form.thigh),
         armCm: numberOrNull(form.arm),
       } as BodyMetricEntry);
+    if (kind === "menstrual")
+      onSave(kind, {
+        ...base(),
+        endDate: String(form.endDate || "") || null,
+        flow: (form.flow || null) as MenstrualEntry["flow"],
+        symptoms: String(form.symptoms || "")
+          .split(/[、,，]/)
+          .map((item) => item.trim())
+          .filter(Boolean),
+      } as MenstrualEntry);
   };
   const hasRequired =
     Boolean(form.date) &&
-    (kind === "body"
+    (kind === "menstrual"
+      ? true
+      : kind === "body"
       ? [
           form.weight,
           form.bodyFat,
@@ -296,6 +324,26 @@ export function EntryForm({
           {input("chest", "胸围（cm）", "number")}
           {input("thigh", "大腿围（cm）", "number")}
           {input("arm", "臂围（cm）", "number")}
+        </>
+      )}
+      {kind === "menstrual" && (
+        <>
+          {input("endDate", "经期结束日", "date")}
+          <label>
+            经量
+            <select
+              value={String(form.flow || "")}
+              onChange={(event) =>
+                setForm({ ...form, flow: event.target.value })
+              }
+            >
+              <option value="">未记录</option>
+              <option value="light">少</option>
+              <option value="medium">中</option>
+              <option value="heavy">多</option>
+            </select>
+          </label>
+          {input("symptoms", "症状（用顿号分隔）")}
         </>
       )}
       <label className="check">

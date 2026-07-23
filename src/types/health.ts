@@ -82,6 +82,15 @@ export interface BodyMetricEntry {
   sourceText?: string;
   notes?: string | null;
 }
+export interface MenstrualEntry {
+  id: string;
+  date: string;
+  endDate?: string | null;
+  flow?: "light" | "medium" | "heavy" | null;
+  symptoms: string[];
+  isEstimated: boolean;
+  notes?: string | null;
+}
 export interface AuditedDailyTotal {
   date: string;
   caloriesKcal: number;
@@ -97,6 +106,7 @@ export interface HealthData {
   cardioEntries: CardioEntry[];
   strengthEntries: StrengthEntry[];
   bodyMetricEntries: BodyMetricEntry[];
+  menstrualEntries: MenstrualEntry[];
   auditedDailyTotals?: AuditedDailyTotal[];
   dataAudit: Record<string, unknown>;
   metadata: Record<string, unknown>;
@@ -107,6 +117,7 @@ export const emptyHealthData = (): HealthData => ({
   cardioEntries: [],
   strengthEntries: [],
   bodyMetricEntries: [],
+  menstrualEntries: [],
   auditedDailyTotals: [],
   dataAudit: {},
   metadata: {},
