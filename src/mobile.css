@@ -277,15 +277,16 @@
   }
 
   .desktop-health-chat { display: none; }
-  .chat-page-active {
+  .app-shell > main.chat-page-active {
     height: calc(100dvh - 62px - env(safe-area-inset-bottom));
     min-height: 0;
     padding: 0;
+    margin: 0;
     overflow: hidden;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
   }
-  .chat-page-active > header { display: none; }
+  .app-shell > main.chat-page-active > header { display: none; }
   .mobile-chat-page.active {
     display: block;
     height: 100%;
