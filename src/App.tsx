@@ -26,6 +26,7 @@ import {
   LineChart,
   Pie,
   PieChart,
+  ReferenceArea,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -415,10 +416,23 @@ function Dashboard({
       const cycle = cycleStatus(data, row.date);
       return {
         ...row,
-        phaseBand: cycle ? 1 : null,
         cyclePhase: cycle?.phase ?? null,
       };
     }),
+    phaseRanges = chartRows.reduce<
+      { phase: CyclePhase; start: string; end: string }[]
+    >((ranges, row) => {
+      if (!row.cyclePhase) return ranges;
+      const previous = ranges.at(-1);
+      if (previous?.phase === row.cyclePhase) previous.end = row.label;
+      else
+        ranges.push({
+          phase: row.cyclePhase,
+          start: row.label,
+          end: row.label,
+        });
+      return ranges;
+    }, []),
     last = rows.at(-1),
     weight = [...data.bodyMetricEntries]
       .filter((x) => x.weightKg != null)
@@ -486,31 +500,23 @@ function Dashboard({
             </div>
             <ResponsiveContainer>
               <ComposedChart data={chartRows} barCategoryGap={0}>
+                {phaseRanges.map((range, index) => (
+                  <ReferenceArea
+                    key={`${range.phase}-${range.start}-${index}`}
+                    yAxisId="calories"
+                    x1={range.start}
+                    x2={range.end}
+                    fill={phaseColors[range.phase]}
+                    fillOpacity={0.16}
+                    strokeOpacity={0}
+                    ifOverflow="hidden"
+                  />
+                ))}
                 <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" />
                 <YAxis yAxisId="calories" domain={[0, "auto"]} />
-                <YAxis yAxisId="phase" hide domain={[0, 1]} />
                 <Tooltip />
                 <Legend />
-                <Bar
-                  yAxisId="phase"
-                  dataKey="phaseBand"
-                  legendType="none"
-                  tooltipType="none"
-                  fillOpacity={0.16}
-                  isAnimationActive={false}
-                >
-                  {chartRows.map((row) => (
-                    <Cell
-                      key={row.date}
-                      fill={
-                        row.cyclePhase
-                          ? phaseColors[row.cyclePhase]
-                          : "transparent"
-                      }
-                    />
-                  ))}
-                </Bar>
                 <Bar
                   yAxisId="calories"
                   dataKey="cardioBurn"
@@ -1014,6 +1020,7 @@ function cycleStatus(data: HealthData, date: string) {
     a.date.localeCompare(b.date),
   );
   if (!entries.length) return null;
+  if (date < entries[0].date) return null;
   const intervals = entries
     .slice(1)
     .map((entry, index) =>
