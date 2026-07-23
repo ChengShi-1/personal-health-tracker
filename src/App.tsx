@@ -100,6 +100,9 @@ export default function App() {
       () => localStorage.getItem("health-theme") === "dark",
     ),
     [add, setAdd] = useState<EntryKind | null>(null),
+    [recordChooser, setRecordChooser] = useState<
+      "category" | "exercise" | null
+    >(null),
     [editing, setEditing] = useState<{
       kind: EntryKind;
       item: EditableEntry;
@@ -304,7 +307,10 @@ export default function App() {
                 onChange={(e) => setRange({ ...range, to: e.target.value })}
               />
             </label>
-            <button className="primary" onClick={() => setAdd("nutrition")}>
+            <button
+              className="primary"
+              onClick={() => setRecordChooser("category")}
+            >
               <Plus size={17} />
               添加记录
             </button>
@@ -358,6 +364,83 @@ export default function App() {
           onChange={importJson}
         />
       </main>
+      {recordChooser && (
+        <Modal
+          title={recordChooser === "category" ? "添加什么记录？" : "选择运动类型"}
+          onClose={() => setRecordChooser(null)}
+        >
+          <div className="record-choice-grid">
+            {recordChooser === "category" ? (
+              <>
+                <button
+                  onClick={() => {
+                    setRecordChooser(null);
+                    setAdd("nutrition");
+                  }}
+                >
+                  <Apple size={22} />
+                  <b>饮食</b>
+                  <span>食物、饮料与营养</span>
+                </button>
+                <button onClick={() => setRecordChooser("exercise")}>
+                  <Dumbbell size={22} />
+                  <b>运动</b>
+                  <span>有氧或无氧训练</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setRecordChooser(null);
+                    setAdd("body");
+                  }}
+                >
+                  <Scale size={22} />
+                  <b>体重 / 身体</b>
+                  <span>体重、体脂与围度</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setRecordChooser(null);
+                    setAdd("menstrual");
+                  }}
+                >
+                  <Droplets size={22} />
+                  <b>经期</b>
+                  <span>日期、经量与症状</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => {
+                    setRecordChooser(null);
+                    setAdd("cardio");
+                  }}
+                >
+                  <Activity size={22} />
+                  <b>有氧运动</b>
+                  <span>跳舞、走路、跑步等</span>
+                </button>
+                <button
+                  onClick={() => {
+                    setRecordChooser(null);
+                    setAdd("strength");
+                  }}
+                >
+                  <Dumbbell size={22} />
+                  <b>无氧运动</b>
+                  <span>动作、组数、次数与重量</span>
+                </button>
+                <button
+                  className="choice-back"
+                  onClick={() => setRecordChooser("category")}
+                >
+                  返回上一层
+                </button>
+              </>
+            )}
+          </div>
+        </Modal>
+      )}
       {add && (
         <Modal
           title={

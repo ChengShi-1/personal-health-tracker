@@ -49,6 +49,25 @@
 .metric-group-values b { margin-top: 8px; font: 500 18px Georgia, serif; white-space: nowrap; }
 .metric-group-values i { margin-left: 3px; color: #8a918a; font: normal 9px Inter, sans-serif; }
 .dark .metric-group-values > div { border-color: #354138; }
+.record-choice-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 12px; }
+.record-choice-grid > button {
+  min-height: 120px;
+  display: grid;
+  align-content: center;
+  justify-items: start;
+  gap: 7px;
+  padding: 17px;
+  color: #244332;
+  background: #f5f8f2;
+  border: 1px solid #dce5dc;
+  border-radius: 13px;
+  text-align: left;
+}
+.record-choice-grid > button:hover { background: #ecf4ec; border-color: #a9c7b2; }
+.record-choice-grid button b { font-size: 14px; }
+.record-choice-grid button span { color: #778078; font-size: 10px; }
+.record-choice-grid .choice-back { grid-column: 1 / -1; min-height: 44px; place-items: center; color: #68736b; }
+.dark .record-choice-grid > button { color: #e5eee7; background: #202a23; border-color: #3a493e; }
 .phase-chart-legend {
   display: flex;
   justify-content: flex-end;
@@ -90,6 +109,8 @@
   .dashboard-metrics .metric-group { grid-column: 1 / -1; }
   .metric-group-values > div { padding: 0 8px; }
   .metric-group-values b { font-size: 17px; }
+  .record-choice-grid { grid-template-columns: 1fr; }
+  .record-choice-grid > button { min-height: 92px; }
 
   .grid2 { gap: 12px; margin-bottom: 12px; }
   .panel { padding: 15px 13px; border-radius: 16px; }
