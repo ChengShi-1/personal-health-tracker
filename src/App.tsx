@@ -326,7 +326,9 @@ export default function App() {
         {page === "body" && (
           <Body data={data} del={del} add={setAdd} edit={edit} />
         )}{" "}
-        {page === "calendar" && <Calendar data={data} />}{" "}
+        {page === "calendar" && (
+          <Calendar data={data} del={del} edit={edit} />
+        )}{" "}
         {page === "audit" && (
           <Audit
             data={data}
@@ -939,7 +941,15 @@ function Body({
     </>
   );
 }
-function Calendar({ data }: { data: HealthData }) {
+function Calendar({
+  data,
+  del,
+  edit,
+}: {
+  data: HealthData;
+  del: (kind: string, id: string) => void;
+  edit: (kind: EntryKind, item: EditableEntry) => void;
+}) {
   const [month, setMonth] = useState(parseISO("2026-07-01")),
     [selected, setSelected] = useState("2026-07-19");
   const days = eachDayOfInterval({
@@ -950,7 +960,8 @@ function Calendar({ data }: { data: HealthData }) {
     info = d.find((x) => x.date === selected);
   const foods = data.nutritionEntries.filter((x) => x.date === selected),
     cardio = data.cardioEntries.filter((x) => x.date === selected),
-    strength = data.strengthEntries.filter((x) => x.date === selected);
+    strength = data.strengthEntries.filter((x) => x.date === selected),
+    bodyMetrics = data.bodyMetricEntries.filter((x) => x.date === selected);
   const mealLabels = {
       breakfast: "早餐",
       lunch: "午餐",
@@ -965,7 +976,8 @@ function Calendar({ data }: { data: HealthData }) {
       ? x.mealType
       : "snack",
   );
-  const hasEntries = foods.length + cardio.length + strength.length > 0;
+  const hasEntries =
+    foods.length + cardio.length + strength.length + bodyMetrics.length > 0;
   return (
     <div className="calendar-layout">
       <section className="panel calendar">
@@ -1030,6 +1042,17 @@ function Calendar({ data }: { data: HealthData }) {
                 <div className="day-row" key={x.id}>
                   <b>{mealLabels[kind]}</b>
                   <span>{x.foodName}</span>
+                  <div className="entry-actions">
+                    <button className="edit" onClick={() => edit("nutrition", x)}>
+                      编辑
+                    </button>
+                    <button
+                      className="delete"
+                      onClick={() => del("nutritionEntries", x.id)}
+                    >
+                      删除
+                    </button>
+                  </div>
                 </div>
               )),
             )}
@@ -1037,12 +1060,53 @@ function Calendar({ data }: { data: HealthData }) {
               <div className="day-row" key={x.id}>
                 <b>有氧</b>
                 <span>{x.activityName || x.activityType}</span>
+                <div className="entry-actions">
+                  <button className="edit" onClick={() => edit("cardio", x)}>
+                    编辑
+                  </button>
+                  <button
+                    className="delete"
+                    onClick={() => del("cardioEntries", x.id)}
+                  >
+                    删除
+                  </button>
+                </div>
               </div>
             ))}
             {strength.map((x) => (
               <div className="day-row" key={x.id}>
                 <b>无氧</b>
                 <span>{x.exerciseName}</span>
+                <div className="entry-actions">
+                  <button className="edit" onClick={() => edit("strength", x)}>
+                    编辑
+                  </button>
+                  <button
+                    className="delete"
+                    onClick={() => del("strengthEntries", x.id)}
+                  >
+                    删除
+                  </button>
+                </div>
+              </div>
+            ))}
+            {bodyMetrics.map((x) => (
+              <div className="day-row" key={x.id}>
+                <b>身体</b>
+                <span>
+                  {x.weightKg != null ? `${x.weightKg} kg` : "身体围度记录"}
+                </span>
+                <div className="entry-actions">
+                  <button className="edit" onClick={() => edit("body", x)}>
+                    编辑
+                  </button>
+                  <button
+                    className="delete"
+                    onClick={() => del("bodyMetricEntries", x.id)}
+                  >
+                    删除
+                  </button>
+                </div>
               </div>
             ))}
           </>
