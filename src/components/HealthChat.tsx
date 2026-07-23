@@ -3,10 +3,10 @@ import {
   Bot,
   Check,
   MessageCircle,
+  Minus,
   Send,
   Sparkles,
   Trash2,
-  X,
 } from "lucide-react";
 import { format } from "date-fns";
 import type {
@@ -175,11 +175,17 @@ export function HealthChat({
     [loading, setLoading] = useState(Boolean(restoredJob)),
     [jobId, setJobId] = useState<string | null>(restoredJob?.jobId ?? null),
     [pending, setPending] = useState<ProposedChanges | null>(null),
-    [error, setError] = useState("");
+    [error, setError] = useState(""),
+    [notification, setNotification] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>(() =>
     restoredJob ? [{ role: "user", content: restoredJob.message }] : [],
   );
   const end = useRef<HTMLDivElement>(null);
+  const openRef = useRef(open);
+  useEffect(() => {
+    openRef.current = open;
+    if (open) setNotification(null);
+  }, [open]);
   useEffect(() => {
     end.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, pending]);
@@ -229,6 +235,8 @@ export function HealthChat({
           setJobId(null);
           setLoading(false);
           setError("");
+          if (!embedded && !openRef.current)
+            setNotification("健康记录已经整理完成，点击查看");
           return;
         }
         if (job.status === "failed") {
@@ -237,6 +245,8 @@ export function HealthChat({
             localStorage.removeItem(pendingJobKey);
           setJobId(null);
           setLoading(false);
+          if (!embedded && !openRef.current)
+            setNotification("后台处理失败，点击查看详情");
           return;
         }
       } catch {
@@ -260,7 +270,7 @@ export function HealthChat({
       document.removeEventListener("visibilitychange", resume);
       window.removeEventListener("online", resume);
     };
-  }, [jobId]);
+  }, [jobId, embedded]);
   const send = async () => {
     const message = text.trim();
     if (!message || loading) return;
@@ -323,11 +333,26 @@ export function HealthChat({
     <>
       {!embedded && (
         <button
-          className="chat-fab"
-          onClick={() => setOpen(true)}
+          className={`chat-fab${loading ? " loading" : ""}`}
+          onClick={() => {
+            setNotification(null);
+            setOpen(true);
+          }}
           aria-label="打开健康助手"
         >
           <MessageCircle size={22} />
+        </button>
+      )}
+      {!embedded && !open && notification && (
+        <button
+          className="chat-notification"
+          onClick={() => {
+            setNotification(null);
+            setOpen(true);
+          }}
+        >
+          <span><Bot size={16} /></span>
+          <b>{notification}</b>
         </button>
       )}
       {open && (
@@ -349,8 +374,12 @@ export function HealthChat({
                 </button>
               )}
               {!embedded && (
-                <button onClick={() => setOpen(false)} aria-label="关闭">
-                  <X size={18} />
+                <button
+                  onClick={() => setOpen(false)}
+                  aria-label="最小化对话"
+                  title="最小化"
+                >
+                  <Minus size={19} />
                 </button>
               )}
             </div>

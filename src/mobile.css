@@ -68,6 +68,37 @@
 .record-choice-grid button span { color: #778078; font-size: 10px; }
 .record-choice-grid .choice-back { grid-column: 1 / -1; min-height: 44px; place-items: center; color: #68736b; }
 .dark .record-choice-grid > button { color: #e5eee7; background: #202a23; border-color: #3a493e; }
+.chat-fab.loading::after {
+  content: "";
+  position: absolute;
+  inset: -4px;
+  border: 2px solid #9ed2ae;
+  border-radius: 19px;
+  animation: chat-working 1.4s ease-out infinite;
+}
+.chat-notification {
+  position: fixed;
+  right: 22px;
+  bottom: 84px;
+  z-index: 58;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  max-width: 310px;
+  padding: 11px 13px;
+  color: #244332;
+  background: #f8fbf7;
+  border: 1px solid #cddfd1;
+  border-radius: 13px;
+  box-shadow: 0 14px 38px #1c352a2e;
+  text-align: left;
+}
+.chat-notification span { display: grid; place-items: center; color: #2f6b4f; }
+.chat-notification b { font-size: 11px; }
+@keyframes chat-working {
+  from { opacity: .85; transform: scale(.92); }
+  to { opacity: 0; transform: scale(1.16); }
+}
 .phase-chart-legend {
   display: flex;
   justify-content: flex-end;
@@ -247,9 +278,9 @@
 
   .desktop-health-chat { display: none; }
   .chat-page-active {
-    height: 100dvh;
+    height: calc(100dvh - 62px - env(safe-area-inset-bottom));
     min-height: 0;
-    padding: 0 0 calc(62px + env(safe-area-inset-bottom));
+    padding: 0;
     overflow: hidden;
     display: grid;
     grid-template-rows: auto minmax(0, 1fr);
@@ -319,6 +350,7 @@
     box-shadow: none;
     transform: none;
   }
+  .mobile-chat-page .chat-compose { padding-bottom: 10px; }
   .mobile-chat-page .health-chat.embedded > header {
     padding: max(14px, env(safe-area-inset-top)) 14px 12px;
   }
