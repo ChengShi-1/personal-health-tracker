@@ -99,6 +99,7 @@ async function processMacroBackfill(jobId:string,entries:any[],supabaseUrl:strin
       const chunk=entries.slice(index,index+35).map((entry:any)=>({id:entry.id,date:entry.date,foodName:entry.foodName,quantity:entry.quantity,unit:entry.unit,sourceText:entry.sourceText,notes:entry.notes,existing:{caloriesKcal:entry.caloriesKcal,proteinG:entry.proteinG,carbsG:entry.carbsG,fatG:entry.fatG,fiberG:entry.fiberG}}));
       const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions:'根据食物名称、份量、原始描述和已有数值，估算每条记录缺失的热量、蛋白质、碳水、脂肪和纤维。保留已有明确值；只补缺失值。所有数值四舍五入到整数。无法合理识别时用 null。每条写简洁中文估算原因。',input:[{role:'user',content:JSON.stringify(chunk)}],text:{format:{type:'json_schema',name:'nutrition_macro_backfill',strict:true,schema:macroSchema}}})});
       const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);const payload=JSON.parse(raw);if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);const text=outputText(payload);if(!text)throw new Error('模型没有返回营养估算');estimates.push(...JSON.parse(text).entries);
+      await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({updated_at:new Date().toISOString()})});
     }
     const byId=new Map(estimates.map((item:any)=>[item.id,item]));
     const updated=entries.map((entry:any)=>{const estimate=byId.get(entry.id);if(!estimate)return entry;return{...entry,caloriesKcal:entry.caloriesKcal??estimate.caloriesKcal,proteinG:entry.proteinG??estimate.proteinG,carbsG:entry.carbsG??estimate.carbsG,fatG:entry.fatG??estimate.fatG,fiberG:entry.fiberG??estimate.fiberG,isEstimated:true,estimationReason:[entry.estimationReason,estimate.estimationReason].filter(Boolean).join('；')}}).filter((entry:any)=>byId.has(entry.id));
@@ -137,7 +138,15 @@ Deno.serve(async req=>{
       if(typeof body.jobId!=='string')return json({error:'缺少任务 ID'},400);
       const response=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${encodeURIComponent(body.jobId)}&user_id=eq.${user.id}&select=id,status,result,error,created_at,updated_at`,{headers:{Accept:'application/vnd.pgrst.object+json'}});
       if(!response.ok)return json({error:response.status===406?'找不到该任务':'任务查询失败'},response.status===406?404:500);
-      return json(await response.json());
+      const job=await response.json();
+      const stale=['queued','running'].includes(job.status)&&Date.now()-new Date(job.updated_at||job.created_at).getTime()>10*60*1000;
+      if(stale){
+        job.status='failed';
+        job.error='后台估算任务已超时，请重新启动补全';
+        job.updated_at=new Date().toISOString();
+        await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${encodeURIComponent(body.jobId)}&user_id=eq.${user.id}`,{method:'PATCH',body:JSON.stringify({status:job.status,error:job.error,completed_at:job.updated_at,updated_at:job.updated_at})});
+      }
+      return json(job);
     }
     if(body.action==='backfill-macros'){
       const entries=Array.isArray(body.entries)?body.entries.filter((entry:any)=>entry&&(entry.caloriesKcal==null||entry.proteinG==null||entry.carbsG==null||entry.fatG==null||entry.fiberG==null)):[];

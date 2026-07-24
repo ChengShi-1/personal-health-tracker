@@ -135,12 +135,26 @@ export default function App() {
     if (!macroJobId || !supabase) return;
     let active = true;
     let timer = 0;
+    let failures = 0;
     const check = async () => {
       const { data: job, error } = await supabase.functions.invoke(
         "health-chat",
         { body: { action: "status", jobId: macroJobId } },
       );
       if (!active) return;
+      if (error) {
+        failures += 1;
+        if (failures >= 5) {
+          localStorage.removeItem("nutrition-macro-job");
+          setMacroJobId(null);
+          setMacroStatus("无法查询后台任务，请重新点击补全");
+          return;
+        }
+      } else {
+        failures = 0;
+        if (job?.status === "queued") setMacroStatus("等待后台估算…");
+        if (job?.status === "running") setMacroStatus("后台估算中…");
+      }
       if (!error && job?.status === "completed" && job.result) {
         const changes = job.result as ProposedChanges;
         setData((current) => {
