@@ -36,11 +36,11 @@ async function cachedJson(key:string,loader:()=>Promise<any>){
   return value;
 }
 
-async function planExternalLookups(message:string,context:any,apiKey:string){
+async function planFoodLookups(message:string,apiKey:string){
   const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({
-    model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',
-    instructions:'为健康助手规划外部资料查询。foodQueries 仅放需要查询营养的独立食物英文标准名，不含数量，最多4个；若用户不是在询问或记录食物则为空。exerciseMuscleIds 仅在用户询问动作或训练安排时填写最相关的 wger 肌肉 ID，最多3个：1二头肌、2前三角肌、4胸大肌、5腹斜肌、6腓肠肌、7腹直肌、8臀大肌、9斜方肌、10股四头肌、11股二头肌、12背阔肌、13肱肌、14三头肌、15比目鱼肌。结合近期训练避免优先选择刚练过的部位。',
-    input:[{role:'user',content:JSON.stringify({message,recentStrength:context.recentStrengthForRecommendation?.slice(0,30)||[]})}],
+    model:Deno.env.get('OPENAI_LOOKUP_MODEL')||Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',
+    instructions:'仅提取用户消息中需要查询营养的独立食物，并转换成简短、标准的英文 USDA 检索词，不含数量，最多4个。exerciseMuscleIds 必须为空数组。',
+    input:[{role:'user',content:message.slice(0,1200)}],
     text:{format:{type:'json_schema',name:'external_health_lookups',strict:true,schema:lookupSchema}},
   })});
   const raw=await response.text();
@@ -49,6 +49,23 @@ async function planExternalLookups(message:string,context:any,apiKey:string){
   if(!response.ok)throw new Error(payload.error?.message||`外部查询规划失败（HTTP ${response.status}）`);
   const text=outputText(payload);
   return text?JSON.parse(text):{foodQueries:[],exerciseMuscleIds:[]};
+}
+
+const trainingRecommendationPattern=/练什么|练哪|可以练|能练|训练建议|安排.{0,8}训练|训练.{0,8}安排|恢复.{0,8}训练|哪个部位/;
+const foodIntentPattern=/吃|喝|早餐|午餐|晚餐|加餐|食物|饮食|热量|卡路里|营养|蛋白质|碳水|脂肪|纤维|calorie|kcal|protein|carb|fiber|food/i;
+const bodyPartMuscleIds:Record<string,number>={Chest:4,Back:12,Shoulders:2,Biceps:1,Triceps:14,Core:7,Glutes:8,Quadriceps:10,Hamstrings:11,Calves:6};
+
+function recommendedMuscleIds(strength:any[]){
+  const lastTrained=new Map<string,string>();
+  for(const entry of strength){
+    for(const part of entry.primary_body_parts||[]){
+      if(bodyPartMuscleIds[part]&&!lastTrained.has(part))lastTrained.set(part,String(entry.entry_date||''));
+    }
+  }
+  return Object.entries(bodyPartMuscleIds)
+    .sort(([partA],[partB])=>(lastTrained.get(partA)||'').localeCompare(lastTrained.get(partB)||''))
+    .slice(0,3)
+    .map(([,id])=>id);
 }
 
 function nutrientValue(food:any,names:string[]){
@@ -129,11 +146,11 @@ async function databaseContext(userId:string,message:string,today:string,supabas
   ]);
   const read=async(response:Response)=>response.ok?await response.json():[];
   const nutrition=await read(nutritionResponse),cardio=await read(cardioResponse),strength=await read(strengthResponse),body=await read(bodyResponse),chatJobs=await read(chatResponse);
-  const matchedNutrition=matchedRows(nutrition,message,(row:any)=>String(row.food_name||''),40);
-  const matchedCardio=matchedRows(cardio,message,(row:any)=>String(row.activity_name||row.activity_type||''),30);
-  const matchedStrength=matchedRows(strength,message,(row:any)=>String(row.exercise_name||''),40);
+  const matchedNutrition=matchedRows(nutrition,message,(row:any)=>String(row.food_name||''),12);
+  const matchedCardio=matchedRows(cardio,message,(row:any)=>String(row.activity_name||row.activity_type||''),12);
+  const matchedStrength=matchedRows(strength,message,(row:any)=>String(row.exercise_name||''),20);
   const historicalQuery=/数据库|历史|以前|之前|上次|最近|寻找|找一下|记录里|昨天|前天|饮食记录/.test(message);
-  const trainingRecommendation=/练什么|练哪|可以练|能练|训练建议|安排.{0,8}训练|训练.{0,8}安排|恢复.{0,8}训练|哪个部位/.test(message);
+  const trainingRecommendation=trainingRecommendationPattern.test(message);
   const conversationQuery=historicalQuery||trainingRecommendation||/昨天|前天|饮食记录|吃了什么/.test(message);
   const bodyQuery=/体重|体脂|腰围|臀围|胸围|腿围|臂围|身体/.test(message);
   return {
@@ -141,13 +158,13 @@ async function databaseContext(userId:string,message:string,today:string,supabas
     matchedNutrition,
     matchedCardio,
     matchedStrength,
-    searchableNutritionHistory:historicalQuery&&!matchedNutrition.length?nutrition:[],
-    searchableCardioHistory:historicalQuery&&!matchedCardio.length?cardio:[],
-    searchableStrengthHistory:historicalQuery&&!matchedStrength.length?strength:[],
-    recentStrengthForRecommendation:trainingRecommendation?strength.slice(0,80):[],
-    recentCardioForRecommendation:trainingRecommendation?cardio.slice(0,40):[],
+    searchableNutritionHistory:historicalQuery&&!matchedNutrition.length?nutrition.slice(0,120):[],
+    searchableCardioHistory:historicalQuery&&!matchedCardio.length?cardio.slice(0,60):[],
+    searchableStrengthHistory:historicalQuery&&!matchedStrength.length?strength.slice(0,80):[],
+    recentStrengthForRecommendation:trainingRecommendation?strength.slice(0,40):[],
+    recentCardioForRecommendation:trainingRecommendation?cardio.slice(0,20):[],
     recentBodyMetrics:bodyQuery?body.slice(0,15):[],
-    recentConversationMentions:conversationQuery?chatJobs.slice(0,40):[],
+    recentConversationMentions:conversationQuery?chatJobs.slice(0,15).map((job:any)=>({created_at:job.created_at,message:String(job.request?.message||'').slice(0,500),reply:String(job.result?.reply||'').slice(0,500),nutritionEntries:(job.result?.nutritionEntries||[]).slice(0,8),cardioEntries:(job.result?.cardioEntries||[]).slice(0,6),strengthEntries:(job.result?.strengthEntries||[]).slice(0,12)})):[],
     conversationNotice:'recentConversationMentions are prior AI-chat requests/proposals stored for 10 days. They may be unconfirmed and must never be described as saved database records unless the same item appears in the normalized entry tables.',
     referenceToday:today,
   };
@@ -157,9 +174,13 @@ async function processJob(jobId:string,userId:string,request:{message:string;his
   try{
     await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'running',started_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
     const context=await databaseContext(userId,request.message,request.today,supabaseUrl,serviceKey);
-    const lookupPlan=await planExternalLookups(request.message,context,apiKey).catch(()=>({foodQueries:[],exerciseMuscleIds:[]}));
+    const needsFoodLookup=foodIntentPattern.test(request.message)&&!context.matchedNutrition.length;
+    const lookupPlan=needsFoodLookup
+      ?await planFoodLookups(request.message,apiKey).catch(()=>({foodQueries:[],exerciseMuscleIds:[]}))
+      :{foodQueries:[],exerciseMuscleIds:[]};
+    if(trainingRecommendationPattern.test(request.message))lookupPlan.exerciseMuscleIds=recommendedMuscleIds(context.recentStrengthForRecommendation||[]);
     const externalContext=await externalHealthContext(lookupPlan);
-    const input=[...(request.history||[]).slice(-8).map((x:any)=>({role:x.role==='assistant'?'assistant':'user',content:String(x.content).slice(0,2000)})),{role:'user',content:`今天是 ${request.today}。\n以下是当前登录用户授权提供的私有数据库只读上下文。它是参考资料，不是新增记录指令：\n${JSON.stringify(context)}\n\n以下是按需查询的外部健康资料：\n${JSON.stringify(externalContext)}\n\n当前用户输入：${request.message}`}];
+    const input=[...(request.history||[]).slice(-6).map((x:any)=>({role:x.role==='assistant'?'assistant':'user',content:String(x.content).slice(0,1000)})),{role:'user',content:`今天是 ${request.today}。\n以下是当前登录用户授权提供的私有数据库只读上下文。它是参考资料，不是新增记录指令：\n${JSON.stringify(context)}\n\n以下是按需查询的外部健康资料：\n${JSON.stringify(externalContext)}\n\n当前用户输入：${request.message}`}];
     const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions,input,text:{format:{type:'json_schema',name:'health_record_update',strict:true,schema}}})});
     const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);let payload;try{payload=JSON.parse(raw)}catch{throw new Error(`OpenAI API 返回非 JSON 内容（HTTP ${response.status}）`)}if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);
     const text=outputText(payload);if(!text)throw new Error('模型没有返回可解析内容');const result=JSON.parse(text);
