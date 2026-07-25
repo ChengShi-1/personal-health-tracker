@@ -9,7 +9,7 @@ const schema={type:'object',additionalProperties:false,required:['reply','nutrit
   strengthEntries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','date','exerciseName','primaryBodyParts','secondaryBodyParts','sets','totalReps','weightKg','durationMinutes','isEstimated','estimationReason','sourceText','notes'],properties:{...common,exerciseName:{type:'string'},primaryBodyParts:{type:'array',items:{enum:bodyParts}},secondaryBodyParts:{type:'array',items:{enum:bodyParts}},sets:nullable('number'),totalReps:nullable('number'),weightKg:nullable('number'),durationMinutes:nullable('number')}}},
   bodyMetricEntries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','date','weightKg','bodyFatPercentage','waistCm','hipCm','isEstimated','estimationReason','sourceText','notes'],properties:{...common,weightKg:nullable('number'),bodyFatPercentage:nullable('number'),waistCm:nullable('number'),hipCm:nullable('number')}}}
 }};
-const instructions=`你是个人健康记录助手。把用户信息提取成结构化记录，并用简洁中文回复。今天日期由请求提供，时区 America/New_York。规则：1. 不编造用户未提及的事实；可合理估算营养或运动消耗，但必须 isEstimated=true 并写明原因。2. 食物和饮料只要缺少 caloriesKcal、proteinG、carbsG、fatG 或 fiberG，就根据名称、份量和常见营养数据合理估算所有缺失项，四舍五入到整数，并将 isEstimated=true、estimationReason 写清估算依据；用户明确提供的数值绝不覆盖。确实无法识别食物或份量时才保留 null。3. 食物按独立 item 拆分，不把“+”、逗号、顿号连接的多种食物放在同一条。4. 无氧训练按独立动作拆分。5. 数值四舍五入到整数，重量统一 kg。6. 餐次仅 breakfast/lunch/dinner/snack；正餐之间吃的归 snack。7. ID 使用日期、类别和稳定短随机后缀组合，避免重复。8. 只提取用户本条消息明确记录的数据；问题、数据库查询或计划不写入记录。9. 回复中说明提取了哪些记录，并提醒用户确认后才保存。10. 用户已授权把与当前问题匹配的私有健康记录作为只读上下文提供给你。查询数据库时引用匹配记录的日期、份量和数值，并返回空记录数组；绝不能把历史记录当成今天的新记录。用户记录新食物或运动但未给数值时，可优先复用数据库中同名且份量相符的历史值，并说明来源；份量不同则按比例估算并标记 isEstimated。数据库没有匹配时必须明确说明。`;
+const instructions=`你是个人健康记录助手。把用户信息提取成结构化记录，并用简洁中文回复。今天日期由请求提供，时区 America/New_York。规则：1. 不编造用户未提及的事实；可合理估算营养或运动消耗，但必须 isEstimated=true 并写明原因。2. 食物和饮料只要缺少 caloriesKcal、proteinG、carbsG、fatG 或 fiberG，就根据名称、份量和常见营养数据合理估算所有缺失项，四舍五入到整数，并将 isEstimated=true、estimationReason 写清估算依据；用户明确提供的数值绝不覆盖。确实无法识别食物或份量时才保留 null。3. 食物按独立 item 拆分，不把“+”、逗号、顿号连接的多种食物放在同一条。4. 无氧训练按独立动作拆分。5. 数值四舍五入到整数，重量统一 kg。6. 餐次仅 breakfast/lunch/dinner/snack；正餐之间吃的归 snack。7. ID 使用日期、类别和稳定短随机后缀组合，避免重复。8. 只提取用户本条消息明确记录的数据；问题、数据库查询或计划不写入记录。9. 回复中说明提取了哪些记录，并提醒用户确认后才保存。10. 用户已授权把与当前问题匹配的私有健康记录作为只读上下文提供给你。查询数据库时引用匹配记录的日期、份量和数值，并返回空记录数组；绝不能把历史记录当成今天的新记录。用户记录新食物或运动但未给数值时，可优先复用数据库中同名且份量相符的历史值，并说明来源；份量不同则按比例估算并标记 isEstimated。数据库没有匹配时必须明确说明。11. 回答“今天练什么、能否练某部位、如何安排训练”等建议问题时，必须先使用上下文中的 recentStrengthForRecommendation、recentCardioForRecommendation 和 recentConversationMentions；只要其中有训练记录，就不能声称没有近期训练数据。对话提及但未确认保存的训练必须明确标注为“对话中提及、未确认保存”。`;
 const macroSchema={type:'object',additionalProperties:false,required:['entries'],properties:{entries:{type:'array',items:{type:'object',additionalProperties:false,required:['id','caloriesKcal','proteinG','carbsG','fatG','fiberG','estimationReason'],properties:{id:{type:'string'},caloriesKcal:nullable('number'),proteinG:nullable('number'),carbsG:nullable('number'),fatG:nullable('number'),fiberG:nullable('number'),estimationReason:{type:'string'}}}}}};
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{...cors,'Content-Type':'application/json; charset=utf-8'}});
 function outputText(payload:any){if(typeof payload.output_text==='string')return payload.output_text;for(const item of payload.output||[])for(const content of item.content||[])if(content.type==='output_text'&&content.text)return content.text;return null}
@@ -59,7 +59,8 @@ async function databaseContext(userId:string,message:string,today:string,supabas
   const matchedCardio=matchedRows(cardio,message,(row:any)=>String(row.activity_name||row.activity_type||''),30);
   const matchedStrength=matchedRows(strength,message,(row:any)=>String(row.exercise_name||''),40);
   const historicalQuery=/数据库|历史|以前|之前|上次|最近|寻找|找一下|记录里|昨天|前天|饮食记录/.test(message);
-  const conversationQuery=historicalQuery||/昨天|前天|饮食记录|吃了什么/.test(message);
+  const trainingRecommendation=/练什么|练哪|可以练|能练|训练建议|安排.{0,8}训练|训练.{0,8}安排|恢复.{0,8}训练|哪个部位/.test(message);
+  const conversationQuery=historicalQuery||trainingRecommendation||/昨天|前天|饮食记录|吃了什么/.test(message);
   const bodyQuery=/体重|体脂|腰围|臀围|胸围|腿围|臂围|身体/.test(message);
   return {
     disclosure:'The signed-in user authorized read-only matching against prior private health records. Explicit database/history searches may include the full available history when local name matching finds nothing.',
@@ -69,6 +70,8 @@ async function databaseContext(userId:string,message:string,today:string,supabas
     searchableNutritionHistory:historicalQuery&&!matchedNutrition.length?nutrition:[],
     searchableCardioHistory:historicalQuery&&!matchedCardio.length?cardio:[],
     searchableStrengthHistory:historicalQuery&&!matchedStrength.length?strength:[],
+    recentStrengthForRecommendation:trainingRecommendation?strength.slice(0,80):[],
+    recentCardioForRecommendation:trainingRecommendation?cardio.slice(0,40):[],
     recentBodyMetrics:bodyQuery?body.slice(0,15):[],
     recentConversationMentions:conversationQuery?chatJobs.slice(0,40):[],
     conversationNotice:'recentConversationMentions are prior AI-chat requests/proposals stored for 10 days. They may be unconfirmed and must never be described as saved database records unless the same item appears in the normalized entry tables.',
