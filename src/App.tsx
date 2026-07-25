@@ -9,6 +9,7 @@ import {
   parseISO,
   startOfMonth,
   startOfWeek,
+  subDays,
   subMonths,
   eachDayOfInterval,
 } from "date-fns";
@@ -786,11 +787,52 @@ function Nutrition({
       (meal === "all" || x.mealType === meal) &&
       x.foodName.toLowerCase().includes(q.toLowerCase()),
   );
+  const thirtyDayEnd = rows.at(-1)?.date;
+  const thirtyDayStart = thirtyDayEnd
+    ? format(subDays(parseISO(thirtyDayEnd), 29), "yyyy-MM-dd")
+    : "";
+  const thirtyDayRows = rows.filter(
+    (x) => x.date >= thirtyDayStart && x.date <= (thirtyDayEnd ?? ""),
+  );
+  const thirtyDayNutrition = data.nutritionEntries.filter(
+    (x) => x.date >= thirtyDayStart && x.date <= (thirtyDayEnd ?? ""),
+  );
+  const averageKnown = (key: "protein" | "carbs" | "fat") => {
+    const knownDays = thirtyDayRows.filter((day) => day[key] != null);
+    return knownDays.length
+      ? knownDays.reduce((total, day) => total + (day[key] ?? 0), 0) /
+          knownDays.length
+      : 0;
+  };
   const macros = [
-    { name: "蛋白质", value: rows.reduce((a, x) => a + (x.protein ?? 0), 0) },
-    { name: "碳水", value: rows.reduce((a, x) => a + (x.carbs ?? 0), 0) },
-    { name: "脂肪", value: rows.reduce((a, x) => a + (x.fat ?? 0), 0) },
+    { name: "蛋白质", value: averageKnown("protein") },
+    { name: "碳水", value: averageKnown("carbs") },
+    { name: "脂肪", value: averageKnown("fat") },
   ].filter((x) => x.value > 0);
+  const mealNames: Record<string, string> = {
+    breakfast: "早餐",
+    lunch: "午餐",
+    dinner: "晚餐",
+    snack: "加餐",
+  };
+  const mealCalories = ["breakfast", "lunch", "dinner", "snack"]
+    .map((mealType) => {
+      const entries = thirtyDayNutrition.filter(
+        (entry) =>
+          entry.mealType === mealType && entry.caloriesKcal != null,
+      );
+      const dates = new Set(entries.map((entry) => entry.date));
+      return {
+        name: mealNames[mealType],
+        value: dates.size
+          ? entries.reduce(
+              (total, entry) => total + (entry.caloriesKcal ?? 0),
+              0,
+            ) / dates.size
+          : 0,
+      };
+    })
+    .filter((item) => item.value > 0);
   const known = rows.filter((x) => x.calories != null);
   return (
     <>
@@ -858,8 +900,8 @@ function Nutrition({
           </ResponsiveContainer>
         </ChartCard>
         <ChartCard
-          title="营养素比例"
-          subtitle="仅统计已知克数"
+          title="营养素比例 · 30 天平均"
+          subtitle="克/记录日 · 缺失值不计为 0"
           empty={!macros.length}
         >
           <ResponsiveContainer>
@@ -875,28 +917,22 @@ function Nutrition({
                   <Cell key={i} fill={COLORS[i]} />
                 ))}
               </Pie>
-              <Tooltip />
+              <Tooltip formatter={(value) => [`${fmt(Number(value))} g`, "日均"]} />
               <Legend />
             </PieChart>
           </ResponsiveContainer>
         </ChartCard>
-        <ChartCard title="每餐热量分布">
+        <ChartCard
+          title="每餐热量分布 · 30 天平均"
+          subtitle="kcal/该餐次记录日"
+          empty={!mealCalories.length}
+        >
           <ResponsiveContainer>
-            <BarChart
-              data={Object.entries(
-                Object.groupBy(
-                  data.nutritionEntries,
-                  (x) => x.mealType || "unknown",
-                ),
-              ).map(([name, v]) => ({
-                name,
-                value: v?.reduce((a, x) => a + (x.caloriesKcal ?? 0), 0),
-              }))}
-            >
+            <BarChart data={mealCalories}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="name" />
               <YAxis />
-              <Tooltip />
+              <Tooltip formatter={(value) => [`${fmt(Number(value))} kcal`, "平均热量"]} />
               <Bar
                 dataKey="value"
                 name="kcal"
