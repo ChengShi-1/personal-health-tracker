@@ -185,7 +185,19 @@ export default function App() {
     };
   }, [macroJobId]);
   const all = daily(data),
-    filtered = all.filter((x) => x.date >= range.from && x.date <= range.to);
+    filtered = all.filter((x) => x.date >= range.from && x.date <= range.to),
+    todayDate = format(new Date(), "yyyy-MM-dd"),
+    completedRows = filtered.filter((x) => x.date < todayDate),
+    completedData: HealthData = {
+      ...data,
+      nutritionEntries: data.nutritionEntries.filter((x) => x.date < todayDate),
+      cardioEntries: data.cardioEntries.filter((x) => x.date < todayDate),
+      strengthEntries: data.strengthEntries.filter((x) => x.date < todayDate),
+      bodyMetricEntries: data.bodyMetricEntries.filter((x) => x.date < todayDate),
+      auditedDailyTotals: data.auditedDailyTotals?.filter(
+        (x) => x.date < todayDate,
+      ),
+    };
   const save = (kind: EntryKind, item: EditableEntry) => {
     const key =
       kind === "nutrition"
@@ -408,11 +420,14 @@ export default function App() {
         <div className={`mobile-chat-page${page === "chat" ? " active" : ""}`}>
           <HealthChat embedded onApply={applyChat} />
         </div>
-        {page === "dashboard" && <Dashboard data={data} rows={filtered} />}{" "}
+        {page === "dashboard" && (
+          <Dashboard data={data} rows={filtered} chartRows={completedRows} />
+        )}{" "}
         {page === "nutrition" && (
           <Nutrition
             data={data}
             rows={filtered}
+            chartRows={completedRows}
             del={del}
             edit={edit}
             onBackfill={backfillMacros}
@@ -423,14 +438,21 @@ export default function App() {
         {page === "exercise" && (
           <Exercise
             data={data}
-            rows={filtered}
+            chartData={completedData}
+            chartRows={completedRows}
             del={del}
             add={setAdd}
             edit={edit}
           />
         )}{" "}
         {page === "body" && (
-          <Body data={data} del={del} add={setAdd} edit={edit} />
+          <Body
+            data={data}
+            chartData={completedData}
+            del={del}
+            add={setAdd}
+            edit={edit}
+          />
         )}{" "}
         {page === "cycle" && (
           <Cycle data={data} del={del} add={setAdd} edit={edit} />
@@ -583,11 +605,13 @@ export default function App() {
 function Dashboard({
   data,
   rows,
+  chartRows: completedRows,
 }: {
   data: HealthData;
   rows: ReturnType<typeof daily>;
+  chartRows: ReturnType<typeof daily>;
 }) {
-  const chartRows = rows.map((row) => {
+  const chartRows = completedRows.map((row) => {
       const cycle = cycleStatus(data, row.date);
       return {
         ...row,
@@ -701,7 +725,11 @@ function Dashboard({
         <ChartCard
           title="饮食热量与运动量"
           subtitle="kcal · 有氧记录值 + 无氧记录/估算值"
-          empty={!rows.some((x) => x.calories != null || x.burned != null)}
+          empty={
+            !completedRows.some(
+              (x) => x.calories != null || x.burned != null,
+            )
+          }
         >
           <div className="phase-chart">
             <div className="phase-chart-legend">
@@ -764,6 +792,7 @@ function Dashboard({
 function Nutrition({
   data,
   rows,
+  chartRows,
   del,
   edit,
   onBackfill,
@@ -772,6 +801,7 @@ function Nutrition({
 }: {
   data: HealthData;
   rows: ReturnType<typeof daily>;
+  chartRows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
   edit: (kind: EntryKind, item: EditableEntry) => void;
   onBackfill: () => void;
@@ -787,11 +817,11 @@ function Nutrition({
       (meal === "all" || x.mealType === meal) &&
       x.foodName.toLowerCase().includes(q.toLowerCase()),
   );
-  const thirtyDayEnd = rows.at(-1)?.date;
+  const thirtyDayEnd = chartRows.at(-1)?.date;
   const thirtyDayStart = thirtyDayEnd
     ? format(subDays(parseISO(thirtyDayEnd), 29), "yyyy-MM-dd")
     : "";
-  const thirtyDayRows = rows.filter(
+  const thirtyDayRows = chartRows.filter(
     (x) => x.date >= thirtyDayStart && x.date <= (thirtyDayEnd ?? ""),
   );
   const thirtyDayNutrition = data.nutritionEntries.filter(
@@ -867,7 +897,7 @@ function Nutrition({
       <div className="grid2">
         <ChartCard title="每日热量摄入" subtitle="kcal">
           <ResponsiveContainer>
-            <LineChart data={rows}>
+            <LineChart data={chartRows}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" />
               <YAxis domain={[0, "auto"]} />
@@ -884,7 +914,7 @@ function Nutrition({
         </ChartCard>
         <ChartCard title="每日蛋白质" subtitle="克">
           <ResponsiveContainer>
-            <AreaChart data={rows}>
+            <AreaChart data={chartRows}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" />
               <YAxis domain={[0, "auto"]} />
@@ -997,19 +1027,21 @@ function Nutrition({
 }
 function Exercise({
   data,
-  rows,
+  chartData,
+  chartRows,
   del,
   add,
   edit,
 }: {
   data: HealthData;
-  rows: ReturnType<typeof daily>;
+  chartData: HealthData;
+  chartRows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
   add: (v: EntryKind) => void;
   edit: (kind: EntryKind, item: EditableEntry) => void;
 }) {
   const types = Object.entries(
-    Object.groupBy(data.cardioEntries, (x) => x.activityType),
+    Object.groupBy(chartData.cardioEntries, (x) => x.activityType),
   ).map(([name, v]) => ({
     name,
     value: v?.reduce((a, x) => a + (x.durationMinutes ?? 0), 0),
@@ -1029,7 +1061,7 @@ function Exercise({
       <div className="grid2">
         <ChartCard title="每日有氧和无氧分钟数">
           <ResponsiveContainer>
-            <BarChart data={rows}>
+            <BarChart data={chartRows}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="label" />
               <YAxis />
@@ -1042,7 +1074,7 @@ function Exercise({
         </ChartCard>
         <ChartCard title="每周运动时长">
           <ResponsiveContainer>
-            <BarChart data={weekly(data)}>
+            <BarChart data={weekly(chartData)}>
               <CartesianGrid vertical={false} />
               <XAxis dataKey="week" />
               <YAxis />
@@ -1086,7 +1118,7 @@ function Exercise({
           title="无氧训练部位热力图"
           subtitle="颜色越深表示训练频率越高"
         >
-          <MuscleHeatmap entries={data.strengthEntries} />
+          <MuscleHeatmap entries={chartData.strengthEntries} />
         </ChartCard>
       </div>
       <DailyExerciseList
@@ -1100,11 +1132,13 @@ function Exercise({
 }
 function Body({
   data,
+  chartData,
   del,
   add,
   edit,
 }: {
   data: HealthData;
+  chartData: HealthData;
   del: (kind: string, id: string) => void;
   add: (kind: EntryKind) => void;
   edit: (kind: EntryKind, item: EditableEntry) => void;
@@ -1112,7 +1146,11 @@ function Body({
   const w = data.bodyMetricEntries
       .filter((x) => x.weightKg != null)
       .sort((a, b) => a.date.localeCompare(b.date)),
-    chart = movingAverage(w),
+    chart = movingAverage(
+      chartData.bodyMetricEntries
+        .filter((x) => x.weightKg != null)
+        .sort((a, b) => a.date.localeCompare(b.date)),
+    ),
     first = w[0]?.weightKg,
     last = w.at(-1)?.weightKg,
     prev = w.at(-2)?.weightKg;
