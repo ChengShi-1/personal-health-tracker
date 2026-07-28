@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Bot,
+  Camera,
   Check,
+  LoaderCircle,
   MessageCircle,
+  Mic,
+  MicOff,
   Minus,
   Send,
   Sparkles,
@@ -19,6 +23,34 @@ import { isSupabaseConfigured, supabase } from "../lib/supabase";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 type StoredChatJob = { jobId: string; message: string; createdAt: string };
+type SpeechResultEvent = {
+  results: ArrayLike<{ 0: { transcript: string }; isFinal: boolean }>;
+};
+type SpeechRecognitionLike = {
+  lang: string;
+  continuous: boolean;
+  interimResults: boolean;
+  start: () => void;
+  stop: () => void;
+  onresult: ((event: SpeechResultEvent) => void) | null;
+  onend: (() => void) | null;
+  onerror: ((event: { error: string }) => void) | null;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type BarcodeDetectorConstructor = new (options?: {
+  formats?: string[];
+}) => {
+  detect: (source: ImageBitmap) => Promise<Array<{ rawValue: string }>>;
+};
+
+const voiceLanguages = [
+  ["zh-CN", "中文"],
+  ["en-US", "English"],
+  ["es-ES", "Español"],
+  ["fr-FR", "Français"],
+  ["ja-JP", "日本語"],
+  ["ko-KR", "한국어"],
+] as const;
 const pendingJobKey = "health-chat-pending-job";
 const readStoredJob = (): StoredChatJob | null => {
   try {
@@ -161,6 +193,35 @@ async function loadHealthChatHistory(): Promise<ChatMessage[]> {
   });
 }
 
+async function lookupOpenFoodFacts(barcode: string) {
+  const response = await fetch(
+    `https://world.openfoodfacts.org/api/v3/product/${encodeURIComponent(barcode)}.json?fields=code,product_name,product_name_zh,brands,quantity,serving_size,nutriments`,
+  );
+  if (!response.ok) return null;
+  const payload = (await response.json()) as {
+    status?: string;
+    product?: {
+      product_name?: string;
+      product_name_zh?: string;
+      brands?: string;
+      quantity?: string;
+      serving_size?: string;
+      nutriments?: Record<string, number | string>;
+    };
+  };
+  if (!payload.product || payload.status === "failure") return null;
+  return payload.product;
+}
+
+const nutrientValue = (
+  nutrients: Record<string, number | string> | undefined,
+  key: string,
+) => {
+  const value = nutrients?.[`${key}_100g`];
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number) : null;
+};
+
 export function HealthChat({
   onApply,
   embedded = false,
@@ -181,7 +242,13 @@ export function HealthChat({
     restoredJob ? [{ role: "user", content: restoredJob.message }] : [],
   );
   const end = useRef<HTMLDivElement>(null);
+  const fileInput = useRef<HTMLInputElement>(null);
+  const recognition = useRef<SpeechRecognitionLike | null>(null);
   const openRef = useRef(open);
+  const [voiceLanguage, setVoiceLanguage] = useState("zh-CN");
+  const [listening, setListening] = useState(false);
+  const [photoProcessing, setPhotoProcessing] = useState(false);
+  const [mediaStatus, setMediaStatus] = useState("");
   useEffect(() => {
     openRef.current = open;
     if (open) setNotification(null);
@@ -213,6 +280,12 @@ export function HealthChat({
       subscription.unsubscribe();
     };
   }, [hadRestoredJob]);
+  useEffect(
+    () => () => {
+      recognition.current?.stop();
+    },
+    [],
+  );
   useEffect(() => {
     if (!jobId) return;
     let active = true;
@@ -328,6 +401,130 @@ export function HealthChat({
       void supabase.functions.invoke("health-chat", {
         body: { action: "clear-history" },
       });
+  };
+  const toggleVoice = () => {
+    if (listening) {
+      recognition.current?.stop();
+      setListening(false);
+      return;
+    }
+    const browserWindow = window as typeof window & {
+      SpeechRecognition?: SpeechRecognitionConstructor;
+      webkitSpeechRecognition?: SpeechRecognitionConstructor;
+    };
+    const Recognition =
+      browserWindow.SpeechRecognition || browserWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      setMediaStatus("此浏览器不支持语音输入，请使用最新版 Chrome 或 Safari。");
+      return;
+    }
+    const instance = new Recognition();
+    instance.lang = voiceLanguage;
+    instance.continuous = true;
+    instance.interimResults = false;
+    instance.onresult = (event) => {
+      const transcript = Array.from(event.results)
+        .map((result) => result[0]?.transcript || "")
+        .join(" ")
+        .trim();
+      if (transcript)
+        setText((current) =>
+          [current.trim(), transcript].filter(Boolean).join(" "),
+        );
+    };
+    instance.onerror = (event) => {
+      setMediaStatus(
+        event.error === "not-allowed"
+          ? "请允许浏览器使用麦克风。"
+          : `语音识别失败：${event.error}`,
+      );
+      setListening(false);
+    };
+    instance.onend = () => setListening(false);
+    recognition.current = instance;
+    setMediaStatus(`正在听写（${voiceLanguages.find(([id]) => id === voiceLanguage)?.[1]}）…`);
+    setListening(true);
+    instance.start();
+  };
+  const processPhoto = async (file: File) => {
+    setPhotoProcessing(true);
+    setMediaStatus("正在本地识别照片，不会上传原图…");
+    try {
+      let barcode = "";
+      const detectorWindow = window as typeof window & {
+        BarcodeDetector?: BarcodeDetectorConstructor;
+      };
+      if (detectorWindow.BarcodeDetector) {
+        try {
+          const bitmap = await createImageBitmap(file);
+          const detector = new detectorWindow.BarcodeDetector({
+            formats: ["ean_13", "ean_8", "upc_a", "upc_e", "qr_code"],
+          });
+          barcode = (await detector.detect(bitmap))[0]?.rawValue || "";
+          bitmap.close();
+        } catch {
+          // 条码 API 并非所有浏览器均完整支持，继续使用 OCR。
+        }
+      }
+      if (barcode) {
+        setMediaStatus("识别到条码，正在查询 Open Food Facts…");
+        const product = await lookupOpenFoodFacts(barcode);
+        if (product) {
+          const nutrients = product.nutriments;
+          const facts = [
+            ["热量", nutrientValue(nutrients, "energy-kcal"), "kcal"],
+            ["蛋白质", nutrientValue(nutrients, "proteins"), "g"],
+            ["碳水", nutrientValue(nutrients, "carbohydrates"), "g"],
+            ["脂肪", nutrientValue(nutrients, "fat"), "g"],
+            ["纤维", nutrientValue(nutrients, "fiber"), "g"],
+          ]
+            .filter(([, value]) => value != null)
+            .map(([label, value, unit]) => `${label} ${value}${unit}`)
+            .join("，");
+          setText((current) =>
+            [
+              current.trim(),
+              `照片条码 ${barcode}（Open Food Facts）：${product.product_name_zh || product.product_name || "未命名产品"}${product.brands ? `，品牌 ${product.brands}` : ""}${product.quantity ? `，包装 ${product.quantity}` : ""}${product.serving_size ? `，每份 ${product.serving_size}` : ""}${facts ? `；每100g：${facts}` : ""}。我食用了：`,
+            ]
+              .filter(Boolean)
+              .join("\n"),
+          );
+          setMediaStatus("已从 Open Food Facts 填入产品信息，请补充食用份量。");
+          return;
+        }
+      }
+      setMediaStatus("未找到可用条码，正在本地识别中英文标签…");
+      const { createWorker } = await import("tesseract.js");
+      const worker = await createWorker("eng+chi_sim");
+      try {
+        const result = await worker.recognize(file);
+        const recognized = result.data.text.replace(/\n{3,}/g, "\n\n").trim();
+        if (!recognized) {
+          setMediaStatus("未识别到文字或条码，请在输入框补充食物名称和份量。");
+          return;
+        }
+        setText((current) =>
+          [
+            current.trim(),
+            `照片本地 OCR 结果（原图未上传）：\n${recognized}\n请从中提取食物、份量和营养信息。`,
+          ]
+            .filter(Boolean)
+            .join("\n\n"),
+        );
+        setMediaStatus("OCR 完成。请检查文字，确认后再发送。");
+      } finally {
+        await worker.terminate();
+      }
+    } catch (photoError) {
+      setMediaStatus(
+        photoError instanceof Error
+          ? `照片识别失败：${photoError.message}`
+          : "照片识别失败，请重试。",
+      );
+    } finally {
+      setPhotoProcessing(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
   };
   return (
     <>
@@ -446,6 +643,53 @@ export function HealthChat({
           </div>
           <div className="chat-compose">
             <div>
+              <div className="chat-media-tools">
+                <button
+                  type="button"
+                  className={listening ? "active" : ""}
+                  onClick={toggleVoice}
+                  disabled={photoProcessing}
+                  aria-label={listening ? "停止语音输入" : "开始语音输入"}
+                  title={listening ? "停止听写" : "语音输入"}
+                >
+                  {listening ? <MicOff size={16} /> : <Mic size={16} />}
+                  <span>{listening ? "停止" : "语音"}</span>
+                </button>
+                <select
+                  value={voiceLanguage}
+                  onChange={(event) => setVoiceLanguage(event.target.value)}
+                  disabled={listening}
+                  aria-label="语音识别语言"
+                >
+                  {voiceLanguages.map(([id, label]) => (
+                    <option value={id} key={id}>{label}</option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => fileInput.current?.click()}
+                  disabled={photoProcessing || listening}
+                  aria-label="上传照片"
+                  title="拍照或上传营养标签"
+                >
+                  {photoProcessing ? (
+                    <LoaderCircle className="spin" size={16} />
+                  ) : (
+                    <Camera size={16} />
+                  )}
+                  <span>{photoProcessing ? "识别中" : "照片"}</span>
+                </button>
+                <input
+                  ref={fileInput}
+                  type="file"
+                  accept="image/*"
+                  hidden
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) void processPhoto(file);
+                  }}
+                />
+              </div>
               <textarea
                 value={text}
                 maxLength={1000}
@@ -460,7 +704,9 @@ export function HealthChat({
                 aria-label="健康记录内容"
                 rows={2}
               />
-              <small>Enter 发送 · Shift + Enter 换行</small>
+              <small>
+                {mediaStatus || "Enter 发送 · Shift + Enter 换行 · 原始语音和照片不发送给 AI"}
+              </small>
             </div>
             <button
               onClick={send}
