@@ -321,7 +321,7 @@
   .cloud-inline-login {
     grid-column: 1 / -1;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr);
     gap: 7px;
   }
   .cloud-inline-login input {
@@ -331,7 +331,8 @@
     border: 1px solid #d3ded5;
     border-radius: 10px;
   }
-  .cloud-inline-login .cloud-login { width: auto; padding: 9px 12px; }
+  .cloud-inline-login .cloud-login { width: 100%; padding: 9px 12px; }
+  .cloud-inline-login .cloud-auth-switch { padding-top: 3px; }
   .chat-page-active > .cloud-inline .cloud-logout {
     grid-column: 1 / -1;
     min-height: 34px;

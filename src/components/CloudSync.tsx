@@ -16,6 +16,9 @@ export function CloudSync({
   const [session, setSession] = useState<Session | null>(null),
     [open, setOpen] = useState(false),
     [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [authMode, setAuthMode] = useState<"login" | "register">("login"),
+    [recovering, setRecovering] = useState(false),
     [status, setStatus] = useState(isSupabaseConfigured ? "未登录" : "未配置"),
     [sending, setSending] = useState(false);
   const loaded = useRef(false),
@@ -25,9 +28,14 @@ export function CloudSync({
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, next) => {
+    } = supabase.auth.onAuthStateChange((event, next) => {
       loaded.current = false;
       setSession(next);
+      if (event === "PASSWORD_RECOVERY") {
+        setRecovering(true);
+        setOpen(true);
+        setStatus("请输入新密码");
+      }
       if (!next) onCloudLoad(emptyHealthData());
     });
     return () => subscription.unsubscribe();
@@ -79,16 +87,23 @@ export function CloudSync({
     return () => window.clearTimeout(timer.current);
   }, [data, session]);
   const login = async () => {
-    if (!supabase || !email.trim()) return;
+    if (!supabase || !email.trim() || password.length < 6) return;
     setSending(true);
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        emailRedirectTo: new URL(import.meta.env.BASE_URL, window.location.origin)
-          .href,
-      },
-    });
-    setStatus(error ? error.message : "登录链接已发送");
+    const credentials = { email: email.trim(), password };
+    const { data: authData, error } =
+      authMode === "register"
+        ? await supabase.auth.signUp(credentials)
+        : await supabase.auth.signInWithPassword(credentials);
+    setStatus(
+      error
+        ? error.message
+        : authMode === "register" && !authData.session
+          ? "账户已创建，请检查邮箱并确认后登录"
+          : authMode === "register"
+            ? "注册成功"
+            : "登录成功",
+    );
+    if (!error) setPassword("");
     setSending(false);
   };
   const logout = async () => {
@@ -96,13 +111,59 @@ export function CloudSync({
     loaded.current = false;
     setStatus("未登录");
   };
+  const requestPasswordReset = async () => {
+    if (!supabase || !email.trim()) {
+      setStatus("请先输入邮箱");
+      return;
+    }
+    setSending(true);
+    const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: new URL(import.meta.env.BASE_URL, window.location.origin).href,
+    });
+    setStatus(error ? error.message : "密码设置链接已发送至邮箱");
+    setSending(false);
+  };
+  const saveNewPassword = async () => {
+    if (!supabase || password.length < 6) return;
+    setSending(true);
+    const { error } = await supabase.auth.updateUser({ password });
+    setStatus(error ? error.message : "密码已更新");
+    if (!error) {
+      setPassword("");
+      setRecovering(false);
+    }
+    setSending(false);
+  };
   const accountContent = !isSupabaseConfigured ? (
     <p>请先配置 Supabase URL 和 Publishable Key。</p>
+  ) : session && recovering ? (
+    <>
+      <div className="cloud-account-copy">
+        <strong>设置新密码</strong>
+        <small>{status}</small>
+      </div>
+      <div className="cloud-inline-login">
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="新密码（至少 6 位）"
+          autoComplete="new-password"
+        />
+        <button
+          className="cloud-login"
+          onClick={saveNewPassword}
+          disabled={sending || password.length < 6}
+        >
+          保存新密码
+        </button>
+      </div>
+    </>
   ) : session ? (
     <>
       <div className="cloud-account-copy">
         <strong>{session.user.email}</strong>
-        <small>{status} · 数据自动保存至 Supabase</small>
+        <small>{status} · 健康数据自动云端保存</small>
       </div>
       <button className="cloud-logout" onClick={logout}>
         <LogOut size={14} />
@@ -112,7 +173,7 @@ export function CloudSync({
   ) : (
     <>
       <div className="cloud-account-copy">
-        <strong>登录 Supabase</strong>
+        <strong>{authMode === "login" ? "登录健康账户" : "创建健康账户"}</strong>
         <small>{status === "未登录" ? "登录后读取并自动同步健康数据" : status}</small>
       </div>
       <div className="cloud-inline-login">
@@ -122,13 +183,43 @@ export function CloudSync({
           onChange={(e) => setEmail(e.target.value)}
           placeholder="你的邮箱"
         />
+        <input
+          type="password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          placeholder="密码（至少 6 位）"
+          autoComplete={authMode === "login" ? "current-password" : "new-password"}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void login();
+          }}
+        />
         <button
           className="cloud-login"
           onClick={login}
-          disabled={sending || !email.trim()}
+          disabled={sending || !email.trim() || password.length < 6}
         >
-          {sending ? "发送中…" : "发送登录链接"}
+          {sending ? "处理中…" : authMode === "login" ? "登录" : "注册"}
         </button>
+        <button
+          className="cloud-auth-switch"
+          type="button"
+          onClick={() => {
+            setAuthMode((mode) => (mode === "login" ? "register" : "login"));
+            setStatus("未登录");
+          }}
+        >
+          {authMode === "login" ? "没有账户？注册" : "已有账户？登录"}
+        </button>
+        {authMode === "login" && (
+          <button
+            className="cloud-auth-switch"
+            type="button"
+            onClick={requestPasswordReset}
+            disabled={sending}
+          >
+            忘记或设置密码
+          </button>
+        )}
       </div>
     </>
   );
@@ -152,7 +243,7 @@ export function CloudSync({
       {open && (
         <div className="cloud-popover">
           <header>
-            <b>Supabase 云同步</b>
+            <b>健康账户</b>
             <button onClick={() => setOpen(false)}>
               <X size={16} />
             </button>
@@ -162,6 +253,24 @@ export function CloudSync({
               <p>
                 请先在 <code>.env</code> 配置 Supabase URL 和 Publishable Key。
               </p>
+            </>
+          ) : session && recovering ? (
+            <>
+              <p>请输入至少 6 位的新密码。</p>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="新密码（至少 6 位）"
+                autoComplete="new-password"
+              />
+              <button
+                className="cloud-login"
+                onClick={saveNewPassword}
+                disabled={sending || password.length < 6}
+              >
+                {sending ? "保存中…" : "保存新密码"}
+              </button>
             </>
           ) : session ? (
             <>
@@ -176,20 +285,56 @@ export function CloudSync({
             </>
           ) : (
             <>
-              <p>输入邮箱后，Supabase 会发送安全登录链接。</p>
+              <p>
+                {authMode === "login"
+                  ? "使用邮箱和密码登录。"
+                  : "创建账户后，你的健康数据会安全同步到云端。"}
+              </p>
               <input
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="你的邮箱"
               />
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="密码（至少 6 位）"
+                autoComplete={authMode === "login" ? "current-password" : "new-password"}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") void login();
+                }}
+              />
               <button
                 className="cloud-login"
                 onClick={login}
-                disabled={sending || !email.trim()}
+                disabled={sending || !email.trim() || password.length < 6}
               >
-                {sending ? "发送中…" : "发送登录链接"}
+                {sending ? "处理中…" : authMode === "login" ? "登录" : "注册"}
               </button>
+              <button
+                className="cloud-auth-switch"
+                type="button"
+                onClick={() => {
+                  setAuthMode((mode) =>
+                    mode === "login" ? "register" : "login",
+                  );
+                  setStatus("未登录");
+                }}
+              >
+                {authMode === "login" ? "没有账户？注册" : "已有账户？登录"}
+              </button>
+              {authMode === "login" && (
+                <button
+                  className="cloud-auth-switch"
+                  type="button"
+                  onClick={requestPasswordReset}
+                  disabled={sending}
+                >
+                  忘记或设置密码
+                </button>
+              )}
             </>
           )}
         </div>
