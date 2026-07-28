@@ -23,6 +23,19 @@ export function CloudSync({
     [sending, setSending] = useState(false);
   const loaded = useRef(false),
     timer = useRef<number>();
+  const authRedirectUrl = new URL(
+    import.meta.env.BASE_URL,
+    window.location.origin,
+  ).href;
+  const authMessage = (message: string) => {
+    const lower = message.toLowerCase();
+    if (lower.includes("rate limit"))
+      return "验证邮件发送过于频繁。内置邮件服务每小时额度很低，请稍后重试或配置自定义 SMTP。";
+    if (lower.includes("not authorized"))
+      return "该邮箱不在内置邮件服务的授权名单中，请配置自定义 SMTP。";
+    if (lower.includes("already registered")) return "该邮箱已经注册，请直接登录或重设密码。";
+    return message;
+  };
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
@@ -89,14 +102,20 @@ export function CloudSync({
   const login = async () => {
     if (!supabase || !email.trim() || password.length < 6) return;
     setSending(true);
-    const credentials = { email: email.trim(), password };
     const { data: authData, error } =
       authMode === "register"
-        ? await supabase.auth.signUp(credentials)
-        : await supabase.auth.signInWithPassword(credentials);
+        ? await supabase.auth.signUp({
+            email: email.trim(),
+            password,
+            options: { emailRedirectTo: authRedirectUrl },
+          })
+        : await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password,
+          });
     setStatus(
       error
-        ? error.message
+        ? authMessage(error.message)
         : authMode === "register" && !authData.session
           ? "账户已创建，请检查邮箱并确认后登录"
           : authMode === "register"
@@ -118,9 +137,27 @@ export function CloudSync({
     }
     setSending(true);
     const { error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
-      redirectTo: new URL(import.meta.env.BASE_URL, window.location.origin).href,
+      redirectTo: authRedirectUrl,
     });
-    setStatus(error ? error.message : "密码设置链接已发送至邮箱");
+    setStatus(error ? authMessage(error.message) : "密码设置链接已发送至邮箱");
+    setSending(false);
+  };
+  const resendVerification = async () => {
+    if (!supabase || !email.trim()) {
+      setStatus("请先输入注册邮箱");
+      return;
+    }
+    setSending(true);
+    const { error } = await supabase.auth.resend({
+      type: "signup",
+      email: email.trim(),
+      options: { emailRedirectTo: authRedirectUrl },
+    });
+    setStatus(
+      error
+        ? authMessage(error.message)
+        : "验证邮件已重新发送，请检查收件箱和垃圾邮件",
+    );
     setSending(false);
   };
   const saveNewPassword = async () => {
@@ -218,6 +255,16 @@ export function CloudSync({
             disabled={sending}
           >
             忘记或设置密码
+          </button>
+        )}
+        {authMode === "register" && (
+          <button
+            className="cloud-auth-switch"
+            type="button"
+            onClick={resendVerification}
+            disabled={sending}
+          >
+            重新发送验证邮件
           </button>
         )}
       </div>
@@ -333,6 +380,16 @@ export function CloudSync({
                   disabled={sending}
                 >
                   忘记或设置密码
+                </button>
+              )}
+              {authMode === "register" && (
+                <button
+                  className="cloud-auth-switch"
+                  type="button"
+                  onClick={resendVerification}
+                  disabled={sending}
+                >
+                  重新发送验证邮件
                 </button>
               )}
             </>
