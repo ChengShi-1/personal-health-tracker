@@ -1,0 +1,2 @@
+-- One-time private recovery was applied directly to the linked Supabase project.
+-- The recovered health records are intentionally excluded from source control.
