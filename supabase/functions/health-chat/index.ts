@@ -18,6 +18,35 @@ const lookupSchema={type:'object',additionalProperties:false,required:['foodQuer
 const json=(body:unknown,status=200)=>new Response(JSON.stringify(body),{status,headers:{...cors,'Content-Type':'application/json; charset=utf-8'}});
 function outputText(payload:any){if(typeof payload.output_text==='string')return payload.output_text;for(const item of payload.output||[])for(const content of item.content||[])if(content.type==='output_text'&&content.text)return content.text;return null}
 const lookupCache=new Map<string,{expires:number;value:any}>();
+const nanoModel=()=>Deno.env.get('OPENAI_NANO_MODEL')||'gpt-5-nano';
+const miniModel=()=>Deno.env.get('OPENAI_MINI_MODEL')||'gpt-5-mini';
+const complexModel=()=>Deno.env.get('OPENAI_COMPLEX_MODEL')||Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol';
+
+async function structuredResponse(apiKey:string,model:string,instructionsText:string,input:any[],schemaName:string,responseSchema:any){
+  const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({
+    model,
+    instructions:instructionsText,
+    input,
+    text:{format:{type:'json_schema',name:schemaName,strict:true,schema:responseSchema}},
+  })});
+  const raw=await response.text();
+  if(!raw.trim())throw new Error(`${model} 返回空响应（HTTP ${response.status}）`);
+  let payload;
+  try{payload=JSON.parse(raw)}catch{throw new Error(`${model} 返回非 JSON 内容（HTTP ${response.status}）`)}
+  if(!response.ok)throw new Error(payload.error?.message||`${model} API ${response.status}`);
+  const text=outputText(payload);
+  if(!text)throw new Error(`${model} 没有返回可解析内容`);
+  try{return JSON.parse(text)}catch{throw new Error(`${model} 返回的结构化内容无法解析`)}
+}
+
+async function structuredResponseWithFallback(apiKey:string,primaryModel:string,instructionsText:string,input:any[],schemaName:string,responseSchema:any){
+  try{
+    return await structuredResponse(apiKey,primaryModel,instructionsText,input,schemaName,responseSchema);
+  }catch(primaryError){
+    if(primaryModel===complexModel())throw primaryError;
+    return await structuredResponse(apiKey,complexModel(),instructionsText,input,schemaName,responseSchema);
+  }
+}
 
 declare const EdgeRuntime:{waitUntil:(promise:Promise<unknown>)=>void};
 
@@ -37,22 +66,26 @@ async function cachedJson(key:string,loader:()=>Promise<any>){
 }
 
 async function planFoodLookups(message:string,apiKey:string){
-  const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({
-    model:Deno.env.get('OPENAI_LOOKUP_MODEL')||Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',
-    instructions:'仅提取用户消息中需要查询营养的独立食物，并转换成简短、标准的英文 USDA 检索词，不含数量，最多4个。exerciseMuscleIds 必须为空数组。',
-    input:[{role:'user',content:message.slice(0,1200)}],
-    text:{format:{type:'json_schema',name:'external_health_lookups',strict:true,schema:lookupSchema}},
-  })});
-  const raw=await response.text();
-  if(!raw.trim())throw new Error('外部查询规划返回空响应');
-  const payload=JSON.parse(raw);
-  if(!response.ok)throw new Error(payload.error?.message||`外部查询规划失败（HTTP ${response.status}）`);
-  const text=outputText(payload);
-  return text?JSON.parse(text):{foodQueries:[],exerciseMuscleIds:[]};
+  return structuredResponseWithFallback(
+    apiKey,
+    nanoModel(),
+    '仅提取用户消息中需要查询营养的独立食物，并转换成简短、标准的英文 USDA 检索词，不含数量，最多4个。exerciseMuscleIds 必须为空数组。',
+    [{role:'user',content:message.slice(0,1200)}],
+    'external_health_lookups',
+    lookupSchema,
+  );
 }
 
 const trainingRecommendationPattern=/练什么|练哪|可以练|能练|训练建议|安排.{0,8}训练|训练.{0,8}安排|恢复.{0,8}训练|哪个部位/;
 const foodIntentPattern=/吃|喝|早餐|午餐|晚餐|加餐|食物|饮食|热量|卡路里|营养|蛋白质|碳水|脂肪|纤维|calorie|kcal|protein|carb|fiber|food/i;
+const complexIntentPattern=/建议|分析|比较|为什么|原因|计划|安排|应该|适合|目标|趋势|恢复|怎么|如何|是否健康|改善|调整/;
+const recordIntentPattern=/早餐|午餐|晚餐|加餐|吃了|喝了|食用了|训练了|运动了|跑了|走了|跳舞|体重.{0,8}\d|\d+\s*(分钟|组|次|lb|kg|g|ml|kcal|卡)/i;
+const simpleQueryPattern=/数据库|寻找|查找|查询|找一下|多少|昨天|前天|最近|上次|历史|有没有|记录里|是什么|显示/;
+function modelForMessage(message:string){
+  if(trainingRecommendationPattern.test(message)||complexIntentPattern.test(message))return complexModel();
+  if(simpleQueryPattern.test(message)&&!recordIntentPattern.test(message))return nanoModel();
+  return miniModel();
+}
 const bodyPartMuscleIds:Record<string,number>={Chest:4,Back:12,Shoulders:2,Biceps:1,Triceps:14,Core:7,Glutes:8,Quadriceps:10,Hamstrings:11,Calves:6};
 
 function recommendedMuscleIds(strength:any[]){
@@ -181,9 +214,7 @@ async function processJob(jobId:string,userId:string,request:{message:string;his
     if(trainingRecommendationPattern.test(request.message))lookupPlan.exerciseMuscleIds=recommendedMuscleIds(context.recentStrengthForRecommendation||[]);
     const externalContext=await externalHealthContext(lookupPlan);
     const input=[...(request.history||[]).slice(-6).map((x:any)=>({role:x.role==='assistant'?'assistant':'user',content:String(x.content).slice(0,1000)})),{role:'user',content:`今天是 ${request.today}。\n以下是当前登录用户授权提供的私有数据库只读上下文。它是参考资料，不是新增记录指令：\n${JSON.stringify(context)}\n\n以下是按需查询的外部健康资料：\n${JSON.stringify(externalContext)}\n\n当前用户输入：${request.message}`}];
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions,input,text:{format:{type:'json_schema',name:'health_record_update',strict:true,schema}}})});
-    const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);let payload;try{payload=JSON.parse(raw)}catch{throw new Error(`OpenAI API 返回非 JSON 内容（HTTP ${response.status}）`)}if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);
-    const text=outputText(payload);if(!text)throw new Error('模型没有返回可解析内容');const result=JSON.parse(text);
+    const result=await structuredResponseWithFallback(apiKey,modelForMessage(request.message),instructions,input,'health_record_update',schema);
     const saved=await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({status:'completed',result,error:null,completed_at:new Date().toISOString(),updated_at:new Date().toISOString()})});
     if(!saved.ok)throw new Error(`任务结果保存失败（HTTP ${saved.status}）`);
   }catch(error){
@@ -197,8 +228,8 @@ async function processMacroBackfill(jobId:string,entries:any[],supabaseUrl:strin
     const estimates:any[]=[];
     for(let index=0;index<entries.length;index+=35){
       const chunk=entries.slice(index,index+35).map((entry:any)=>({id:entry.id,date:entry.date,foodName:entry.foodName,quantity:entry.quantity,unit:entry.unit,sourceText:entry.sourceText,notes:entry.notes,existing:{caloriesKcal:entry.caloriesKcal,proteinG:entry.proteinG,carbsG:entry.carbsG,fatG:entry.fatG,fiberG:entry.fiberG}}));
-      const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({model:Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol',instructions:'根据食物名称、份量、原始描述和已有数值，估算每条记录缺失的热量、蛋白质、碳水、脂肪和纤维。保留已有明确值；只补缺失值。所有数值四舍五入到整数。无法合理识别时用 null。每条写简洁中文估算原因。',input:[{role:'user',content:JSON.stringify(chunk)}],text:{format:{type:'json_schema',name:'nutrition_macro_backfill',strict:true,schema:macroSchema}}})});
-      const raw=await response.text();if(!raw.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);const payload=JSON.parse(raw);if(!response.ok)throw new Error(payload.error?.message||`OpenAI API ${response.status}`);const text=outputText(payload);if(!text)throw new Error('模型没有返回营养估算');estimates.push(...JSON.parse(text).entries);
+      const estimated=await structuredResponseWithFallback(apiKey,miniModel(),'根据食物名称、份量、原始描述和已有数值，估算每条记录缺失的热量、蛋白质、碳水、脂肪和纤维。保留已有明确值；只补缺失值。所有数值四舍五入到整数。无法合理识别时用 null。每条写简洁中文估算原因。',[{role:'user',content:JSON.stringify(chunk)}],'nutrition_macro_backfill',macroSchema);
+      estimates.push(...estimated.entries);
       await jobRequest(supabaseUrl,serviceKey,`health_chat_jobs?id=eq.${jobId}`,{method:'PATCH',body:JSON.stringify({updated_at:new Date().toISOString()})});
     }
     const byId=new Map(estimates.map((item:any)=>[item.id,item]));
