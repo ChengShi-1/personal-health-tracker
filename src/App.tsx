@@ -108,6 +108,9 @@ export default function App() {
     [macroJobId, setMacroJobId] = useState<string | null>(
       () => localStorage.getItem("nutrition-macro-job"),
     ),
+    [macroJobDate, setMacroJobDate] = useState<string | null>(
+      () => localStorage.getItem("nutrition-macro-job-date"),
+    ),
     [macroStatus, setMacroStatus] = useState(""),
     [editing, setEditing] = useState<{
       kind: EntryKind;
@@ -147,7 +150,9 @@ export default function App() {
         failures += 1;
         if (failures >= 5) {
           localStorage.removeItem("nutrition-macro-job");
+          localStorage.removeItem("nutrition-macro-job-date");
           setMacroJobId(null);
+          setMacroJobDate(null);
           setMacroStatus("无法查询后台任务，请重新点击补全");
           return;
         }
@@ -166,13 +171,19 @@ export default function App() {
           return { ...current, nutritionEntries: [...next.values()] };
         });
         localStorage.removeItem("nutrition-macro-job");
+        localStorage.removeItem("nutrition-macro-job-date");
         setMacroJobId(null);
-        setMacroStatus(`已补全 ${changes.nutritionEntries.length} 条`);
+        setMacroJobDate(null);
+        setMacroStatus(
+          `${macroJobDate ?? "当天"}已补全 ${changes.nutritionEntries.length} 条`,
+        );
         return;
       }
       if (!error && job?.status === "failed") {
         localStorage.removeItem("nutrition-macro-job");
+        localStorage.removeItem("nutrition-macro-job-date");
         setMacroJobId(null);
+        setMacroJobDate(null);
         setMacroStatus(job.error || "补全失败");
         return;
       }
@@ -183,7 +194,7 @@ export default function App() {
       active = false;
       window.clearTimeout(timer);
     };
-  }, [macroJobId]);
+  }, [macroJobId, macroJobDate]);
   const all = daily(data),
     filtered = all.filter((x) => x.date >= range.from && x.date <= range.to),
     todayDate = format(new Date(), "yyyy-MM-dd"),
@@ -222,21 +233,22 @@ export default function App() {
   };
   const edit = (kind: EntryKind, item: EditableEntry) =>
     setEditing({ kind, item });
-  const backfillMacros = async () => {
+  const backfillMacros = async (date: string) => {
     if (!supabase || macroJobId) return;
     const missing = data.nutritionEntries.filter(
       (entry) =>
-        entry.caloriesKcal == null ||
-        entry.proteinG == null ||
-        entry.carbsG == null ||
-        entry.fatG == null ||
-        entry.fiberG == null,
+        entry.date === date &&
+        (entry.caloriesKcal == null ||
+          (entry.proteinG == null ||
+            entry.carbsG == null ||
+            entry.fatG == null ||
+            entry.fiberG == null)),
     );
     if (!missing.length) {
       setMacroStatus("没有缺失营养素");
       return;
     }
-    setMacroStatus(`正在估算 ${missing.length} 条…`);
+    setMacroStatus(`正在估算 ${date} · ${missing.length} 条…`);
     const { data: result, error } = await supabase.functions.invoke(
       "health-chat",
       { body: { action: "backfill-macros", entries: missing } },
@@ -246,7 +258,9 @@ export default function App() {
       return;
     }
     localStorage.setItem("nutrition-macro-job", result.jobId);
+    localStorage.setItem("nutrition-macro-job-date", date);
     setMacroJobId(result.jobId);
+    setMacroJobDate(date);
   };
   const applyChat = (changes: ProposedChanges) =>
     setData((current) => {
@@ -804,12 +818,13 @@ function Nutrition({
   chartRows: ReturnType<typeof daily>;
   del: (k: string, id: string) => void;
   edit: (kind: EntryKind, item: EditableEntry) => void;
-  onBackfill: () => void;
+  onBackfill: (date: string) => void;
   backfillStatus: string;
   backfillRunning: boolean;
 }) {
   const [q, setQ] = useState(""),
-    [meal, setMeal] = useState("all");
+    [meal, setMeal] = useState("all"),
+    [backfillDate, setBackfillDate] = useState("");
   const list = data.nutritionEntries.filter(
     (x) =>
       x.date >= rows[0]?.date &&
@@ -863,6 +878,23 @@ function Nutrition({
       };
     })
     .filter((item) => item.value > 0);
+  const missingDates = [
+    ...new Set(
+      data.nutritionEntries
+        .filter(
+          (entry) =>
+            entry.caloriesKcal == null ||
+            entry.proteinG == null ||
+            entry.carbsG == null ||
+            entry.fatG == null ||
+            entry.fiberG == null,
+        )
+        .map((entry) => entry.date),
+    ),
+  ].sort((a, b) => b.localeCompare(a));
+  const selectedBackfillDate = missingDates.includes(backfillDate)
+    ? backfillDate
+    : (missingDates[0] ?? "");
   const known = rows.filter((x) => x.calories != null);
   return (
     <>
@@ -995,11 +1027,24 @@ function Nutrition({
             </select>
             <button
               className="macro-backfill"
-              onClick={onBackfill}
-              disabled={backfillRunning}
+              onClick={() => onBackfill(selectedBackfillDate)}
+              disabled={backfillRunning || !selectedBackfillDate}
             >
-              {backfillRunning ? "后台估算中…" : "补全缺失营养素"}
+              {backfillRunning ? "后台估算中…" : "补全所选日期"}
             </button>
+            <select
+              aria-label="选择需要补全营养素的日期"
+              value={selectedBackfillDate}
+              onChange={(event) => setBackfillDate(event.target.value)}
+              disabled={backfillRunning || !missingDates.length}
+            >
+              {!missingDates.length && <option value="">没有缺失日期</option>}
+              {missingDates.map((date) => (
+                <option key={date} value={date}>
+                  {date}
+                </option>
+              ))}
+            </select>
             {backfillStatus && (
               <small className="macro-backfill-status">{backfillStatus}</small>
             )}
@@ -1825,13 +1870,21 @@ function EntryTable({
               dayItems.reduce(
                 (sum, x) => sum + (info.get(x.id)?.caloriesKcal ?? 0),
                 0,
-              );
+              ),
+            knownProtein = dayItems
+              .map((x) => info.get(x.id)?.proteinG)
+              .filter((value): value is number => value != null),
+            proteinTotal = knownProtein.length
+              ? knownProtein.reduce((sum, value) => sum + value, 0)
+              : null;
           return (
             <details className="workout-session food-session" key={date}>
               <summary>
                 <time>{format(parseISO(date), "M/d")}</time>
                 <div>
-                  <b>{fmt(total)} kcal</b>
+                  <b>
+                    {fmt(total)} kcal · {fmt(proteinTotal)}g 蛋白
+                  </b>
                   <span>
                     {order
                       .filter((k) => groups[k]?.length)
