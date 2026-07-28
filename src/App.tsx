@@ -666,7 +666,7 @@ function Dashboard({
         : "—",
       "kcal",
     ],
-    ["当前体重", fmt(weight, 1), "kg"],
+    ["当前体重", fmt(weight, 2), "kg"],
     ["记录覆盖", String(streak), "天"],
   ];
   return (
