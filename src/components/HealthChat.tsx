@@ -705,7 +705,7 @@ export function HealthChat({
                 rows={2}
               />
               <small>
-                {mediaStatus || "Enter 发送 · Shift + Enter 换行 · 原始语音和照片不发送给 AI"}
+                {mediaStatus || "Enter 发送 · Shift + Enter 换行 · 原始语音和照片不发送给 OpenAI"}
               </small>
             </div>
             <button
