@@ -18,14 +18,14 @@ const instructions=`你是个人健康记录助手。把用户信息提取成结
 function outputText(json){if(typeof json.output_text==='string')return json.output_text;for(const item of json.output||[])for(const content of item.content||[])if(content.type==='output_text'&&content.text)return content.text;return null}
 function send(res,status,body){res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(body))}
 const server=http.createServer(async(req,res)=>{
-  if(req.method==='GET'&&req.url==='/api/health')return send(res,200,{ok:true,configured:Boolean(process.env.OPENAI_API_KEY),model:process.env.OPENAI_MODEL||'gpt-5.6-sol'});
+  if(req.method==='GET'&&req.url==='/api/health')return send(res,200,{ok:true,configured:Boolean(process.env.OPENAI_API_KEY),model:process.env.OPENAI_MODEL||'gpt-5.6-luna'});
   if(req.method!=='POST'||req.url!=='/api/health-chat')return send(res,404,{error:'Not found'});
   if(!process.env.OPENAI_API_KEY)return send(res,503,{error:'请先在 .env 中设置 OPENAI_API_KEY'});
   try{
     let raw='';for await(const chunk of req){raw+=chunk;if(raw.length>100000)throw new Error('请求内容过长')}
     const {message,history=[],today}=JSON.parse(raw);if(typeof message!=='string'||!message.trim())return send(res,400,{error:'请输入健康记录'});
     const input=[...history.slice(-8).map(x=>({role:x.role==='assistant'?'assistant':'user',content:String(x.content).slice(0,2000)})),{role:'user',content:`今天是 ${today}。用户输入：${message}`}];
-    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-sol',instructions,input,text:{format:{type:'json_schema',name:'health_record_update',strict:true,schema}}})});
+    const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${process.env.OPENAI_API_KEY}`,'Content-Type':'application/json'},body:JSON.stringify({model:process.env.OPENAI_MODEL||'gpt-5.6-luna',instructions,input,text:{format:{type:'json_schema',name:'health_record_update',strict:true,schema}}})});
     const responseText=await response.text();if(!responseText.trim())throw new Error(`OpenAI API 返回空响应（HTTP ${response.status}）`);
     let json;try{json=JSON.parse(responseText)}catch{throw new Error(`OpenAI API 返回非 JSON 内容（HTTP ${response.status}）`)}if(!response.ok)throw new Error(json.error?.message||`OpenAI API ${response.status}`);
     const text=outputText(json);if(!text)throw new Error('模型没有返回可解析内容');

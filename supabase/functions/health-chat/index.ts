@@ -20,7 +20,7 @@ function outputText(payload:any){if(typeof payload.output_text==='string')return
 const lookupCache=new Map<string,{expires:number;value:any}>();
 const nanoModel=()=>Deno.env.get('OPENAI_NANO_MODEL')||'gpt-5-nano';
 const miniModel=()=>Deno.env.get('OPENAI_MINI_MODEL')||'gpt-5-mini';
-const complexModel=()=>Deno.env.get('OPENAI_COMPLEX_MODEL')||Deno.env.get('OPENAI_MODEL')||'gpt-5.6-sol';
+const complexModel=()=>Deno.env.get('OPENAI_COMPLEX_MODEL')||'gpt-5.6-luna';
 
 async function structuredResponse(apiKey:string,model:string,instructionsText:string,input:any[],schemaName:string,responseSchema:any){
   const response=await fetch('https://api.openai.com/v1/responses',{method:'POST',headers:{Authorization:`Bearer ${apiKey}`,'Content-Type':'application/json'},body:JSON.stringify({

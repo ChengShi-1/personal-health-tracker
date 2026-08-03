@@ -42,7 +42,7 @@ Edge Functions → Secrets
 
 ```text
 OPENAI_API_KEY = 你的 OpenAI API Key
-OPENAI_MODEL = gpt-5.6-sol
+OPENAI_COMPLEX_MODEL = gpt-5.6-luna
 ```
 
 也可以复制 `supabase/.env.secrets.example` 为 `supabase/.env.secrets`，填写后执行：
